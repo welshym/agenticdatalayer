@@ -1,0 +1,59 @@
+# Discount Policies
+# =================
+# Business-owned configuration. Edit this file to change discount rules.
+# After editing, call POST /reload on the Offer Engine (port 8016) to apply
+# changes without restarting the service.
+#
+# Each policy declares a rule block that fully describes how it is evaluated.
+# The engine contains no hardcoded rule logic — all evaluation behaviour is
+# driven from this file.
+#
+# Rule scopes
+# -----------
+#   per_product   — evaluates each active product individually. The rule fires
+#                   for each product where match_field satisfies the operator
+#                   and threshold. Discount is applied per qualifying product.
+#
+#   portfolio     — evaluates an aggregate across all active products. When the
+#                   aggregate satisfies the operator and threshold, the discount
+#                   is applied to every active product.
+#                   Supported aggregates: sum, avg, count.
+#
+# Operators: gt, gte, lt, lte, eq
+#
+# sku_combination rules also require a requires list — each entry must be
+# satisfied by at least one active product for the policy to fire — and an
+# applies_to field:
+#   matched   — discount applies only to the products that satisfied a requirement
+#   all       — discount applies to every active product
+#
+# Policies are additive: if multiple rules fire, their discounts stack.
+
+policies:
+
+  - policy_id: contract_duration_2yr
+    description: >
+      10% discount per product line where the customer committed to a 24-month
+      contract term at the time of purchase. Applied individually per product —
+      a mixed portfolio receives the discount only on qualifying product lines.
+    discount_pct: 10.0
+    reason: "24-month contract discount"
+    rule:
+      scope: per_product
+      match_field: contract_term_months
+      operator: gte
+      threshold: 24
+
+  - policy_id: high_value_contract
+    description: >
+      10% discount across all active products when the customer's total active
+      monthly charges exceed £100. Evaluated against the sum of active product
+      monthly charges; suspended or cancelled lines are excluded from the total.
+    discount_pct: 10.0
+    reason: "High-value contract discount (>£100/month)"
+    rule:
+      scope: portfolio
+      aggregate: sum
+      match_field: list_price_gbp
+      operator: gt
+      threshold: 100.0

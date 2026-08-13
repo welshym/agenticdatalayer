@@ -1,0 +1,138 @@
+# Product Catalogue
+# =================
+# Business-owned configuration. Edit this file to add products, change prices,
+# define bundles, or update structural relationships between products.
+# After editing, call POST /reload on the Offer Engine (port 8016) to apply
+# changes without restarting the service.
+#
+# Relationship types:
+#   UPGRADES_TO       — product A can be replaced by product B (mutually exclusive;
+#                       customer swaps A for B rather than holding both)
+#   COMPATIBLE_WITH   — product A can be held alongside product B
+#   INCOMPATIBLE_WITH — product A cannot be held simultaneously with product B
+#                       (use for non-upgrade conflicts; UPGRADES_TO already implies
+#                       mutual exclusivity within the upgrade path)
+
+products:
+
+  # ---- Broadband ----
+  - sku: BB-FTTC-100
+    name: Fibre 100Mbps Broadband
+    product_type: broadband
+    list_price_gbp: 28.00
+    available_terms_months: [1, 12, 24]
+
+  - sku: BB-FIBRE-500
+    name: Fibre 500Mbps Broadband
+    product_type: broadband
+    list_price_gbp: 38.00
+    available_terms_months: [1, 12, 24]
+
+  - sku: BB-FIBRE-1G
+    name: Fibre 1Gbps Broadband
+    product_type: broadband
+    list_price_gbp: 45.00
+    available_terms_months: [1, 24]
+
+  # ---- TV ----
+  - sku: TV-SPORTS-PKG
+    name: Sports Pack
+    product_type: tv
+    list_price_gbp: 20.00
+    available_terms_months: [1, 12, 24]
+
+  - sku: TV-FULL-HSE
+    name: Full House TV
+    product_type: tv
+    list_price_gbp: 55.00
+    available_terms_months: [1, 12, 24]
+
+  # ---- Mobile ----
+  - sku: MOB-SIM-12GB
+    name: SIM-Only 12GB
+    product_type: mobile
+    list_price_gbp: 12.00
+    available_terms_months: [1, 12]
+
+  - sku: MOB-5G-UNLIM
+    name: 5G Unlimited
+    product_type: mobile
+    list_price_gbp: 35.00
+    available_terms_months: [1, 12, 24]
+
+
+bundles:
+
+  - bundle_id: QUAD_PLAY_PREMIER
+    name: Quad Play Premier
+    description: Broadband + Full House TV + Unlimited Mobile at a bundled rate
+    required_skus: [BB-FIBRE-1G, TV-FULL-HSE, MOB-5G-UNLIM]
+    bundle_price_gbp: 99.00
+    available_terms_months: [24]
+
+
+relationships:
+
+  # Broadband upgrade path
+  - from: BB-FTTC-100
+    to: BB-FIBRE-500
+    type: UPGRADES_TO
+
+  - from: BB-FIBRE-500
+    to: BB-FIBRE-1G
+    type: UPGRADES_TO
+
+  # TV upgrade path
+  - from: TV-SPORTS-PKG
+    to: TV-FULL-HSE
+    type: UPGRADES_TO
+
+  # TV packages are mutually exclusive (not an upgrade — a conflict)
+  - from: TV-FULL-HSE
+    to: TV-SPORTS-PKG
+    type: INCOMPATIBLE_WITH
+
+  # Cross-category compatibility — broadband enables TV and mobile add-ons
+  - from: BB-FIBRE-1G
+    to: TV-SPORTS-PKG
+    type: COMPATIBLE_WITH
+
+  - from: BB-FIBRE-1G
+    to: TV-FULL-HSE
+    type: COMPATIBLE_WITH
+
+  - from: BB-FIBRE-1G
+    to: MOB-5G-UNLIM
+    type: COMPATIBLE_WITH
+
+  - from: BB-FIBRE-1G
+    to: MOB-SIM-12GB
+    type: COMPATIBLE_WITH
+
+  - from: BB-FIBRE-500
+    to: TV-SPORTS-PKG
+    type: COMPATIBLE_WITH
+
+  - from: BB-FIBRE-500
+    to: TV-FULL-HSE
+    type: COMPATIBLE_WITH
+
+  - from: BB-FIBRE-500
+    to: MOB-5G-UNLIM
+    type: COMPATIBLE_WITH
+
+  - from: BB-FIBRE-500
+    to: MOB-SIM-12GB
+    type: COMPATIBLE_WITH
+
+  - from: BB-FTTC-100
+    to: TV-SPORTS-PKG
+    type: COMPATIBLE_WITH
+
+  - from: BB-FTTC-100
+    to: MOB-5G-UNLIM
+    type: COMPATIBLE_WITH
+
+  - from: BB-FTTC-100
+    to: MOB-SIM-12GB
+    type: COMPATIBLE_WITH

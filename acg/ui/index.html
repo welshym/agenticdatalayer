@@ -1,0 +1,1114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CX Demo — Product Holdings</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,400;9..144,600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg:           #FAFAF7;
+      --panel:        #FFFFFF;
+      --ink:          #1A1A18;
+      --muted:        #5F5E5A;
+      --faint:        #8A8880;
+      --line:         #E5E2DB;
+      --line-strong:  #D3D1C7;
+      --accent:       #0F6E56;
+      --accent-soft:  #E1F5EE;
+      --accent-ink:   #085041;
+
+      --layer-exp:    #5882B8;  --layer-exp-bg:  #E6EEF7;
+      --layer-ag:     #0F6E56;  --layer-ag-bg:   #E6F3EE;
+      --layer-ctx:    #9A6C98;  --layer-ctx-bg:  #F1E8F2;
+      --layer-sor:    #5F6B74;  --layer-sor-bg:  #E8EAEC;
+
+      --state-complete:  #0F6E56;  --state-complete-bg:  #E1F5EE;
+      --state-partial:   #B45309;  --state-partial-bg:   #FEF3C7;
+      --state-timeout:   #B91C1C;  --state-timeout-bg:   #FEE2E2;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'DM Sans', -apple-system, sans-serif;
+      background: var(--bg); color: var(--ink);
+      min-height: 100vh; font-size: 14px; line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── Top nav ── */
+    .topnav {
+      background: var(--panel); border-bottom: 1px solid var(--line);
+      padding: 0 1.25rem; display: flex; align-items: stretch;
+      gap: 0; min-height: 54px; overflow-x: auto;
+    }
+    .topnav-brand {
+      font-family: 'Fraunces', serif; font-size: 1rem; font-weight: 600;
+      color: var(--ink); display: flex; align-items: center; padding-right: 1rem;
+      border-right: 1px solid var(--line); margin-right: 0.5rem; white-space: nowrap;
+    }
+    .service-pills { display: flex; align-items: center; gap: 0; flex: 1; }
+    .svc-pill {
+      display: flex; flex-direction: column; align-items: flex-start;
+      padding: 6px 10px; border-right: 1px solid var(--line);
+      text-decoration: none; transition: background 0.12s; gap: 1px;
+      white-space: nowrap;
+    }
+    .svc-pill:hover { background: var(--bg); }
+    .svc-pill-layer { font-size: 8px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+    .svc-pill-name  { font-size: 11px; font-weight: 600; color: var(--ink); }
+    .svc-pill-port  { font-size: 9px; color: var(--faint); font-family: monospace; }
+    .svc-exp  .svc-pill-layer { color: var(--layer-exp); }
+    .svc-ag   .svc-pill-layer { color: var(--layer-ag);  }
+    .svc-ctx  .svc-pill-layer { color: var(--layer-ctx); }
+    .svc-sor  .svc-pill-layer { color: var(--layer-sor); }
+    .flow-arrow { color: var(--faint); font-size: 11px; padding: 0 3px; display: flex; align-items: center; }
+
+    /* ── Page layout ── */
+    .page { display: grid; grid-template-columns: 280px 1fr; min-height: calc(100vh - 54px); }
+
+    /* ── Left sidebar ── */
+    .sidebar {
+      background: var(--panel); border-right: 1px solid var(--line);
+      padding: 1rem; display: flex; flex-direction: column; gap: 1rem;
+      overflow-y: auto; max-height: calc(100vh - 54px);
+    }
+    .sidebar-label {
+      font-size: 9px; font-weight: 700; letter-spacing: 0.1em;
+      text-transform: uppercase; color: var(--faint); margin-bottom: 5px;
+    }
+    .sidebar-section-head {
+      font-size: 9px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+      padding: 4px 8px; border-radius: 4px; margin-bottom: 6px;
+    }
+    .section-crm  { background: var(--layer-sor-bg); color: var(--layer-sor); }
+    .section-prod { background: var(--layer-exp-bg); color: var(--layer-exp); }
+
+    .select-wrap { position: relative; }
+    select {
+      width: 100%; appearance: none;
+      background: var(--bg); border: 0.5px solid var(--line-strong);
+      border-radius: 8px; padding: 8px 28px 8px 10px;
+      font-family: inherit; font-size: 12px; font-weight: 500; color: var(--ink); cursor: pointer;
+    }
+    select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+    .select-caret { position: absolute; right: 9px; top: 50%; transform: translateY(-50%); pointer-events: none; color: var(--faint); font-size: 9px; }
+
+    input[type="text"],
+    input[type="number"] {
+      width: 100%; background: var(--bg); border: 0.5px solid var(--line-strong);
+      border-radius: 8px; padding: 7px 10px;
+      font-family: inherit; font-size: 12px; color: var(--ink);
+    }
+    input[type="text"]:focus,
+    input[type="number"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+    input[type="text"]::placeholder,
+    input[type="number"]::placeholder { color: var(--faint); }
+
+    .btn {
+      display: flex; align-items: center; justify-content: center; gap: 5px;
+      width: 100%; padding: 8px 12px; border-radius: 8px; border: none;
+      font-family: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
+      transition: background 0.13s, opacity 0.13s;
+    }
+    .btn-primary  { background: var(--accent); color: #fff; }
+    .btn-primary:hover { background: #0d5f4b; }
+    .btn-outline  { background: var(--bg); color: var(--ink); border: 0.5px solid var(--line-strong); }
+    .btn-outline:hover { background: var(--line); }
+    .btn-sor { background: var(--layer-sor-bg); color: var(--layer-sor); }
+    .btn-sor:hover { background: #d9dde0; }
+    .btn-exp { background: var(--layer-exp-bg); color: var(--layer-exp); }
+    .btn-exp:hover { background: #ccdcef; }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    /* Raw record blocks */
+    .raw-block {
+      border: 0.5px solid var(--line-strong); border-radius: 8px; overflow: hidden;
+    }
+    .raw-toggle {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 6px 9px; cursor: pointer; user-select: none;
+    }
+    .raw-toggle-label { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
+    .raw-body { display: none; padding: 0 9px 9px; overflow-x: auto; }
+    .raw-body.open { display: block; }
+    pre.raw-json { font-size: 9px; line-height: 1.5; color: var(--muted); white-space: pre; font-family: 'Menlo', 'Consolas', monospace; }
+
+    .field-label { font-size: 9px; font-weight: 600; color: var(--muted); margin-bottom: 3px; }
+    .trigger-form { display: flex; flex-direction: column; gap: 7px; }
+
+    /* Divider */
+    .sidebar-divider { border: none; border-top: 1px solid var(--line); margin: 2px 0; }
+
+    /* ── Main content ── */
+    .main { padding: 1.25rem 1.5rem; display: flex; flex-direction: column; gap: 1.1rem; overflow-y: auto; }
+
+    .section-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+    .section-title { font-family: 'Fraunces', serif; font-size: 1.05rem; font-weight: 600; color: var(--ink); }
+    .section-meta  { font-size: 11px; color: var(--faint); }
+
+    /* Assembly state badge */
+    .assembly-badge {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 3px 10px; border-radius: 999px; font-size: 10px; font-weight: 700;
+      letter-spacing: 0.03em;
+    }
+    .badge-complete  { background: var(--state-complete-bg);  color: var(--state-complete); }
+    .badge-partial   { background: var(--state-partial-bg);   color: var(--state-partial);  }
+    .badge-timeout   { background: var(--state-timeout-bg);   color: var(--state-timeout);  }
+
+    /* Product cards */
+    .products-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 9px; }
+    .product-card {
+      background: var(--panel); border: 0.5px solid var(--line);
+      border-radius: 10px; padding: 11px 13px;
+      display: flex; flex-direction: column; gap: 7px;
+      transition: box-shadow 0.13s;
+    }
+    .product-card:hover { box-shadow: 0 2px 10px rgba(26,26,24,0.07); }
+    .card-header { display: flex; align-items: center; justify-content: space-between; }
+    .type-badge {
+      display: inline-flex; align-items: center; gap: 3px;
+      padding: 2px 7px; border-radius: 999px;
+      font-size: 8px; font-weight: 700; letter-spacing: 0.04em;
+    }
+    .badge-broadband { background: var(--layer-exp-bg); color: var(--layer-exp); }
+    .badge-mobile    { background: var(--layer-ag-bg);  color: var(--layer-ag);  }
+    .badge-tv        { background: var(--layer-ctx-bg); color: var(--layer-ctx); }
+    .status { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 600; }
+    .status::before { content: ''; display: inline-block; width: 5px; height: 5px; border-radius: 50%; }
+    .s-active    { color: #0F6E56; } .s-active::before    { background: #0F6E56; }
+    .s-suspended { color: #B45309; } .s-suspended::before { background: #B45309; }
+    .s-cancelled { color: #B91C1C; } .s-cancelled::before { background: #B91C1C; }
+    .product-name { font-family: 'Fraunces', serif; font-size: 0.9rem; font-weight: 600; line-height: 1.2; }
+    .product-meta { display: flex; flex-direction: column; gap: 2px; }
+    .meta-row { display: flex; justify-content: space-between; font-size: 10px; color: var(--muted); }
+    .meta-row span:last-child { font-weight: 500; color: var(--ink); }
+    .product-sku { font-size: 8px; color: var(--faint); font-family: monospace; margin-top: 1px; }
+    .empty-state {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      padding: 2.5rem 1rem; text-align: center; gap: 7px; color: var(--muted);
+      grid-column: 1 / -1;
+    }
+    .empty-icon { font-size: 1.5rem; opacity: 0.25; }
+
+    /* Collapsible panels */
+    .panel { background: var(--panel); border: 0.5px solid var(--line); border-radius: 10px; overflow: hidden; }
+    .panel-bar {
+      display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+      padding: 8px 13px; cursor: pointer; user-select: none;
+    }
+    .panel-bar-title { font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+    .panel-body { display: none; padding: 12px 13px; }
+    .panel-body.open { display: block; }
+
+    /* Pending assemblies panel */
+    .pending-bar { background: var(--state-partial-bg); border-bottom: 0.5px solid var(--line); }
+    .pending-bar .panel-bar-title { color: var(--state-partial); }
+    .pending-count { background: var(--state-partial); color: #fff; font-size: 9px; font-weight: 700; padding: 1px 6px; border-radius: 999px; }
+
+    .pending-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    .pending-table th { font-size: 8px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: var(--faint); padding: 4px 10px; text-align: left; border-bottom: 0.5px solid var(--line); }
+    .pending-table td { padding: 5px 10px; color: var(--muted); border-bottom: 0.5px solid var(--line); vertical-align: top; }
+    .pending-table tr:last-child td { border-bottom: none; }
+    .pending-table td.ink { color: var(--ink); font-weight: 500; }
+    .pending-table td.mono { font-family: monospace; font-size: 9px; }
+
+    /* Log trace panel */
+    .log-bar { background: var(--layer-ag-bg); border-bottom: 0.5px solid var(--line); }
+    .log-bar .panel-bar-title { color: var(--layer-ag); }
+    .log-count { background: var(--layer-ag); color: #fff; font-size: 9px; font-weight: 700; padding: 1px 6px; border-radius: 999px; }
+
+    .log-timeline { display: flex; flex-direction: column; gap: 0; }
+    .log-entry {
+      display: grid; grid-template-columns: 70px 80px 110px 1fr auto;
+      gap: 0 10px; align-items: start;
+      padding: 7px 4px; border-bottom: 0.5px solid var(--line);
+      font-size: 10px;
+    }
+    .log-entry:last-child { border-bottom: none; }
+    .log-entry:first-child { background: var(--accent-soft); }
+    .log-ts { color: var(--faint); font-family: monospace; font-size: 9px; padding-top: 1px; }
+    .log-service { font-size: 8px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; padding: 1px 6px; border-radius: 4px; white-space: nowrap; text-align: center; margin-top: 1px; }
+    .svc-cdc-assembly { background: var(--layer-ctx-bg); color: var(--layer-ctx); }
+    .svc-cache        { background: var(--layer-ag-bg);  color: var(--layer-ag);  }
+    .svc-crm-sor      { background: var(--layer-sor-bg); color: var(--layer-sor); }
+    .svc-product-sor  { background: var(--layer-exp-bg); color: var(--layer-exp); }
+    .svc-acg          { background: #f0f0f0;             color: #555;             }
+    .log-action {
+      font-size: 9px; font-weight: 700; letter-spacing: 0.04em;
+      font-family: monospace; color: var(--ink); padding-top: 1px;
+    }
+    .log-reason { color: var(--muted); line-height: 1.4; font-size: 10px; }
+    .outcome-badge {
+      font-size: 8px; font-weight: 700; padding: 1px 6px; border-radius: 999px;
+      white-space: nowrap; margin-top: 1px;
+    }
+    .out-success { background: var(--state-complete-bg); color: var(--state-complete); }
+    .out-partial  { background: var(--state-partial-bg); color: var(--state-partial); }
+    .out-timeout  { background: var(--state-timeout-bg); color: var(--state-timeout); }
+    .out-error    { background: var(--state-timeout-bg); color: var(--state-timeout); }
+
+    /* Provenance panel */
+    .prov-bar { background: var(--layer-ctx-bg); border-bottom: 0.5px solid var(--line); }
+    .prov-bar .panel-bar-title { color: var(--layer-ctx); }
+
+    .meta-pill {
+      display: inline-flex; align-items: center; gap: 3px;
+      background: var(--panel); border: 0.5px solid var(--line-strong);
+      border-radius: 999px; padding: 2px 7px; font-size: 9px; font-weight: 500; color: var(--muted);
+    }
+    .meta-pill span { color: var(--ink); font-weight: 600; }
+
+    .mapping-grid { display: grid; grid-template-columns: 1fr auto 1fr; gap: 3px 7px; align-items: center; margin-bottom: 8px; }
+    .m-sor { font-family: monospace; font-size: 9px; background: var(--layer-sor-bg); color: var(--layer-sor); padding: 2px 6px; border-radius: 4px; text-align: right; }
+    .m-arr { color: var(--faint); font-size: 9px; text-align: center; }
+    .m-can { font-family: monospace; font-size: 9px; background: var(--layer-ag-bg);  color: var(--layer-ag);  padding: 2px 6px; border-radius: 4px; }
+    .m-der { grid-column: 1/-1; font-size: 9px; color: var(--faint); font-style: italic; padding: 1px 3px; }
+
+    /* Misc */
+    .ver-badge { display: inline-flex; background: var(--line); color: var(--muted); font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 999px; letter-spacing: 0.04em; }
+    .spinner { display: inline-block; width: 11px; height: 11px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.65s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .tog-arrow { margin-left: auto; font-size: 9px; color: var(--faint); }
+
+    .toast {
+      position: fixed; bottom: 18px; right: 18px; z-index: 9999;
+      background: var(--ink); color: #fff; padding: 8px 13px; border-radius: 8px;
+      font-size: 12px; font-weight: 500;
+      transform: translateY(50px); opacity: 0; transition: transform 0.18s, opacity 0.18s;
+    }
+    .toast.show { transform: translateY(0); opacity: 1; }
+    .toast.ok  { background: var(--accent); }
+    .toast.err { background: #B91C1C; }
+  </style>
+</head>
+<body>
+
+<!-- ── Top nav — service pipeline ── -->
+<nav class="topnav">
+  <span class="topnav-brand">CX Product Holdings</span>
+  <div class="service-pills">
+
+    <a class="svc-pill svc-sor" href="http://localhost:8010/docs" target="_blank">
+      <span class="svc-pill-layer">Systems of Record</span>
+      <span class="svc-pill-name">CRM SoR</span>
+      <span class="svc-pill-port">:8010</span>
+    </a>
+    <span class="flow-arrow">+</span>
+    <a class="svc-pill svc-sor" href="http://localhost:8014/docs" target="_blank">
+      <span class="svc-pill-layer">Systems of Record</span>
+      <span class="svc-pill-name">Catalogue SoR</span>
+      <span class="svc-pill-port">:8014</span>
+    </a>
+    <span class="flow-arrow">+</span>
+    <a class="svc-pill svc-sor" href="http://localhost:8017/docs" target="_blank">
+      <span class="svc-pill-layer">Systems of Record</span>
+      <span class="svc-pill-name">Billing SoR</span>
+      <span class="svc-pill-port">:8017</span>
+    </a>
+    <span class="flow-arrow">→</span>
+
+    <a class="svc-pill svc-ctx" href="http://localhost:8011/docs" target="_blank">
+      <span class="svc-pill-layer">Business Context Layer</span>
+      <span class="svc-pill-name">CDC Assembly</span>
+      <span class="svc-pill-port">:8011</span>
+    </a>
+    <span class="flow-arrow">→</span>
+
+    <a class="svc-pill svc-ctx" href="http://localhost:8012/docs" target="_blank">
+      <span class="svc-pill-layer">Business Context Layer</span>
+      <span class="svc-pill-name">Context Cache</span>
+      <span class="svc-pill-port">:8012</span>
+    </a>
+    <span class="flow-arrow">→</span>
+
+    <a class="svc-pill svc-ag" href="http://localhost:8013/docs" target="_blank">
+      <span class="svc-pill-layer">Agentic Layer</span>
+      <span class="svc-pill-name">ACG</span>
+      <span class="svc-pill-port">:8013</span>
+    </a>
+    <span class="flow-arrow">→</span>
+
+    <div class="svc-pill svc-exp" style="cursor:default;">
+      <span class="svc-pill-layer">Experience Layer</span>
+      <span class="svc-pill-name">Agent UI</span>
+      <span class="svc-pill-port">:8013/</span>
+    </div>
+
+    <a class="svc-pill" href="http://localhost:8015/docs" target="_blank" style="margin-left:auto;">
+      <span class="svc-pill-layer" style="color:var(--muted);">Cross-cutting</span>
+      <span class="svc-pill-name">Log Service</span>
+      <span class="svc-pill-port">:8015</span>
+    </a>
+
+  </div>
+</nav>
+
+<div class="page">
+
+  <!-- ── Left sidebar ── -->
+  <aside class="sidebar">
+
+    <!-- Customer select -->
+    <div>
+      <p class="sidebar-label">Customer</p>
+      <div class="select-wrap">
+        <select id="customer-select"><option value="">Loading…</option></select>
+        <span class="select-caret">▾</span>
+      </div>
+    </div>
+
+    <button class="btn btn-primary" id="load-btn" onclick="loadHoldings()">Load Holdings via ACG</button>
+
+    <hr class="sidebar-divider">
+
+    <!-- CRM SoR section -->
+    <div>
+      <p class="sidebar-section-head section-crm">CRM SoR  :8010</p>
+
+      <p class="sidebar-label">Raw CRM Record</p>
+      <div class="raw-block" style="background:var(--layer-sor-bg);">
+        <div class="raw-toggle" onclick="toggleRaw('crm')">
+          <span class="raw-toggle-label" id="raw-crm-label" style="color:var(--layer-sor);">▶ crm-sor record</span>
+          <span style="font-size:8px;color:var(--faint)">identity only</span>
+        </div>
+        <div class="raw-body" id="raw-crm-body">
+          <pre class="raw-json" id="raw-crm-json">—</pre>
+        </div>
+      </div>
+
+      <div class="trigger-form" style="margin-top:8px;">
+        <div>
+          <p class="field-label">CRM Field to Change</p>
+          <div class="select-wrap">
+            <select id="crm-field">
+              <option value="first_nm">first_nm — First Name</option>
+              <option value="last_nm">last_nm — Last Name</option>
+              <option value="email">email — Email</option>
+              <option value="phone">phone — Phone</option>
+            </select>
+            <span class="select-caret">▾</span>
+          </div>
+        </div>
+        <div>
+          <p class="field-label">New Value (leave blank to re-emit)</p>
+          <input type="text" id="crm-new-value" placeholder="e.g. Alicia">
+        </div>
+        <button class="btn btn-sor" id="crm-trigger-btn" onclick="publishCrmEvent()">
+          Publish CRM Event → CDC
+        </button>
+      </div>
+    </div>
+
+    <hr class="sidebar-divider">
+
+    <!-- Billing SoR section -->
+    <div>
+      <p class="sidebar-section-head section-prod">Billing SoR  :8017</p>
+
+      <p class="sidebar-label">Raw Billing Record</p>
+      <div class="raw-block" style="background:var(--layer-exp-bg);">
+        <div class="raw-toggle" onclick="toggleRaw('billing')">
+          <span class="raw-toggle-label" id="raw-billing-label" style="color:var(--layer-exp);">▶ billing-sor record</span>
+          <span style="font-size:8px;color:var(--faint)">subscriptions only</span>
+        </div>
+        <div class="raw-body" id="raw-billing-body">
+          <pre class="raw-json" id="raw-billing-json">—</pre>
+        </div>
+      </div>
+
+      <div class="trigger-form" style="margin-top:8px;">
+        <p class="field-label" style="font-size:8px;letter-spacing:0.05em;">UPDATE EXISTING</p>
+        <div>
+          <p class="field-label">Subscription SKU (blank to re-emit)</p>
+          <div class="select-wrap">
+            <select id="trigger-sku"><option value="">Select customer first</option></select>
+            <span class="select-caret">▾</span>
+          </div>
+        </div>
+        <div>
+          <p class="field-label">New Status</p>
+          <div class="select-wrap">
+            <select id="trigger-stat">
+              <option value="">— no change —</option>
+              <option value="A">A — Active</option>
+              <option value="S">S — Suspended</option>
+              <option value="C">C — Cancelled</option>
+            </select>
+            <span class="select-caret">▾</span>
+          </div>
+        </div>
+        <div>
+          <p class="field-label">New Monthly Charge £ (optional)</p>
+          <input type="number" id="trigger-charge" placeholder="leave blank to keep" min="0" step="0.01">
+        </div>
+        <button class="btn btn-exp" id="billing-update-btn" onclick="updateBillingSubscription()">
+          Update Subscription
+        </button>
+
+        <p class="field-label" style="font-size:8px;letter-spacing:0.05em;border-top:0.5px solid var(--line);padding-top:8px;margin-top:3px;">ADD SUBSCRIPTION</p>
+        <div>
+          <p class="field-label">Product</p>
+          <div class="select-wrap">
+            <select id="add-sku"><option value="">Load customer first</option></select>
+            <span class="select-caret">▾</span>
+          </div>
+        </div>
+        <div>
+          <p class="field-label">Monthly Charge £/mo</p>
+          <input type="number" id="add-charge" placeholder="from catalogue" min="0" step="0.01">
+        </div>
+        <div>
+          <p class="field-label">Contract Term</p>
+          <div class="select-wrap">
+            <select id="add-term">
+              <option value="1">1 month (rolling)</option>
+            </select>
+            <span class="select-caret">▾</span>
+          </div>
+        </div>
+        <button class="btn btn-exp" id="billing-add-btn" onclick="addBillingSubscription()">
+          Add Subscription
+        </button>
+      </div>
+    </div>
+
+  </aside>
+
+  <!-- ── Main ── -->
+  <main class="main">
+
+    <!-- Product holdings header + cards -->
+    <section>
+      <div class="section-head">
+        <span class="section-title" id="customer-heading">Select a customer</span>
+        <span class="section-meta"  id="product-count"></span>
+        <span class="ver-badge"     id="ver-badge" style="display:none"></span>
+        <span id="assembly-badge"></span>
+      </div>
+      <div class="products-grid" id="products-grid">
+        <div class="empty-state">
+          <div class="empty-icon">⬡</div>
+          <p>Choose a customer and click <strong>Load Holdings via ACG</strong></p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Pending Assemblies -->
+    <section class="panel" id="pending-panel">
+      <div class="panel-bar pending-bar" onclick="togglePanel('pending')">
+        <span class="panel-bar-title">Pending Assemblies</span>
+        <span class="pending-count" id="pending-count">0</span>
+        <span style="font-size:9px;color:var(--state-partial)">in-flight joins  ·  :8011/pending</span>
+        <span class="tog-arrow" id="pending-tog">▶</span>
+      </div>
+      <div class="panel-body" id="pending-body">
+        <table class="pending-table">
+          <thead>
+            <tr>
+              <th>Customer</th><th>Domains Received</th><th>Awaiting</th>
+              <th>Correlation ID</th><th>Timeout</th>
+            </tr>
+          </thead>
+          <tbody id="pending-rows">
+            <tr><td colspan="5" style="text-align:center;color:var(--faint);padding:12px">No pending assemblies</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Log Trace -->
+    <section class="panel" id="log-panel">
+      <div class="panel-bar log-bar" onclick="togglePanel('log')">
+        <span class="panel-bar-title">Assembly Log Trace</span>
+        <span class="log-count" id="log-count">0</span>
+        <span style="font-size:9px;color:var(--layer-ag)">structured assembly decisions  ·  :8015/logs</span>
+        <span class="tog-arrow" id="log-tog">▶</span>
+      </div>
+      <div class="panel-body" id="log-body">
+        <div class="log-timeline" id="log-rows">
+          <div style="text-align:center;color:var(--faint);padding:12px;font-size:11px">No log entries yet</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Ontology Provenance -->
+    <section class="panel" id="prov-panel">
+      <div class="panel-bar prov-bar" onclick="togglePanel('prov')">
+        <span class="panel-bar-title">Ontology Provenance</span>
+        <span class="meta-pill" id="p-source">source —</span>
+        <span class="meta-pill" id="p-time">assembled —</span>
+        <span class="meta-pill" id="p-ver">version —</span>
+        <span class="meta-pill" id="p-cache">—</span>
+        <span class="tog-arrow" id="prov-tog">▶</span>
+      </div>
+      <div class="panel-body" id="prov-body">
+        <div id="mapping-container"></div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  /* ──────────────────────────────────────────────
+     Service endpoints
+  ────────────────────────────────────────────── */
+  const CRM            = 'http://localhost:8010';
+  const CDC            = 'http://localhost:8011';
+  const CACHE          = 'http://localhost:8012';
+  const ACG            = 'http://localhost:8013';
+  const CATALOGUE      = 'http://localhost:8014';
+  const LOG            = 'http://localhost:8015';
+  const BILLING        = 'http://localhost:8017';
+  const ACTION_BROKER  = 'http://localhost:8018';
+
+  /* ──────────────────────────────────────────────
+     State
+  ────────────────────────────────────────────── */
+  let currentId       = null;
+  let crmRecord       = null;
+  let billingRecord   = null;
+  let rawCrmOpen      = false;
+  let rawBillingOpen  = false;
+  let panelOpen       = { pending: false, log: false, prov: false };
+  let refreshTimer    = null;
+  let _authToken      = null;   // JWT Bearer token for ACG calls
+
+  /* ──────────────────────────────────────────────
+     Auth — acquire a ui-client JWT from the Action Broker
+  ────────────────────────────────────────────── */
+  async function _acquireToken() {
+    try {
+      const res = await fetch(`${ACTION_BROKER}/token`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ client_id: 'ui-client' }),
+      });
+      if (res.ok) {
+        const data  = await res.json();
+        _authToken = data.access_token;
+      }
+    } catch (_) {
+      // Action Broker may not be running; ACG calls will fail with 401 — that's expected
+    }
+  }
+
+  function _authHeaders() {
+    return _authToken ? { 'Authorization': `Bearer ${_authToken}` } : {};
+  }
+
+  /* ──────────────────────────────────────────────
+     Init
+  ────────────────────────────────────────────── */
+  async function init() {
+    await _acquireToken();
+    await populateCustomers();
+    await refreshPending();
+  }
+
+  async function populateCustomers() {
+    const list = await apiFetch(`${CRM}/customers`);
+    const sel  = document.getElementById('customer-select');
+    sel.innerHTML = '<option value="">— select customer —</option>';
+    list.forEach(c => {
+      const o = document.createElement('option');
+      o.value = c.customer_id;
+      o.textContent = `${c.full_name}  (${c.customer_id})`;
+      sel.appendChild(o);
+    });
+    sel.addEventListener('change', () => {
+      currentId = sel.value || null;
+      resetMainDisplay();
+      document.getElementById('trigger-sku').innerHTML  = '<option value="">Select customer first</option>';
+      document.getElementById('add-sku').innerHTML      = '<option value="">Select customer first</option>';
+      document.getElementById('add-charge').value       = '';
+      document.getElementById('trigger-charge').value   = '';
+      if (currentId) startAutoRefresh();
+      else stopAutoRefresh();
+    });
+  }
+
+  /* ──────────────────────────────────────────────
+     Auto-refresh pending + log every 5s
+  ────────────────────────────────────────────── */
+  function startAutoRefresh() {
+    stopAutoRefresh();
+    refreshTimer = setInterval(async () => {
+      await refreshPending();
+      if (currentId) await refreshLog();
+    }, 5000);
+  }
+
+  function stopAutoRefresh() {
+    if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
+  }
+
+  function resetMainDisplay() {
+    document.getElementById('customer-heading').textContent = 'Select a customer';
+    document.getElementById('product-count').textContent = '';
+    document.getElementById('ver-badge').style.display = 'none';
+    document.getElementById('assembly-badge').innerHTML = '';
+    document.getElementById('products-grid').innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon">⬡</div>
+        <p>Choose a customer and click <strong>Load Holdings via ACG</strong></p>
+      </div>`;
+    document.getElementById('p-source').innerHTML = 'source —';
+    document.getElementById('p-time').innerHTML   = 'assembled —';
+    document.getElementById('p-ver').innerHTML    = 'version —';
+    document.getElementById('p-cache').innerHTML  = '—';
+    document.getElementById('mapping-container').innerHTML = '';
+    document.getElementById('raw-crm-json').textContent     = '—';
+    document.getElementById('raw-billing-json').textContent = '—';
+  }
+
+  /* ──────────────────────────────────────────────
+     Load holdings — calls ACG
+  ────────────────────────────────────────────── */
+  async function loadHoldings() {
+    const id = document.getElementById('customer-select').value;
+    if (!id) { toast('Select a customer first', 'err'); return; }
+    currentId = id;
+
+    setBtnLoading('load-btn', true, 'Load Holdings via ACG');
+
+    // Fetch raw records from both SoRs in parallel
+    const [crm, billing] = await Promise.all([
+      apiFetch(`${CRM}/customers/${id}`),
+      apiFetch(`${BILLING}/customers/${id}`),
+    ]);
+    crmRecord     = crm;
+    billingRecord = billing;
+
+    document.getElementById('raw-crm-json').textContent     = JSON.stringify(crmRecord, null, 2);
+    document.getElementById('raw-billing-json').textContent = JSON.stringify(billingRecord, null, 2);
+    populateTriggerSkus(billingRecord);
+    populateAvailableSkus(billingRecord);  // async, updates add-sku dropdown in background
+
+    // Holdings via ACG — executes retrieval plan
+    const ctx = await apiFetch(`${ACG}/context/${id}`);
+
+    renderCards(ctx);
+    renderProv(ctx);
+    await Promise.all([refreshPending(), refreshLog()]);
+    setBtnLoading('load-btn', false, 'Load Holdings via ACG');
+    startAutoRefresh();
+  }
+
+  /* ──────────────────────────────────────────────
+     Render product cards + assembly state badge
+  ────────────────────────────────────────────── */
+  function renderCards(ctx) {
+    document.getElementById('customer-heading').textContent =
+      ctx.profile?.full_name || ctx.customer_id || '—';
+
+    const products = ctx.commercial_state?.subscriptions || [];
+    document.getElementById('product-count').textContent =
+      `${products.length} product${products.length !== 1 ? 's' : ''}`;
+
+    const ver = document.getElementById('ver-badge');
+    ver.textContent = `v${ctx.version}`;
+    ver.style.display = '';
+
+    // Assembly state badge
+    const state  = ctx.assembly_state || 'complete';
+    const badgeEl = document.getElementById('assembly-badge');
+    if (state === 'complete') {
+      badgeEl.innerHTML = `<span class="assembly-badge badge-complete">● complete</span>`;
+    } else if (state === 'partial_timed_out') {
+      badgeEl.innerHTML = `<span class="assembly-badge badge-timeout">✕ timed out — partial</span>`;
+    } else if (state === 'awaiting_billing') {
+      badgeEl.innerHTML = `<span class="assembly-badge badge-partial">◑ awaiting billing domain</span>`;
+    } else if (state === 'awaiting_crm') {
+      badgeEl.innerHTML = `<span class="assembly-badge badge-partial">◑ awaiting CRM domain</span>`;
+    } else {
+      badgeEl.innerHTML = `<span class="assembly-badge badge-partial">${state}</span>`;
+    }
+
+    const grid = document.getElementById('products-grid');
+    if (!products.length) {
+      if (state !== 'complete') {
+        grid.innerHTML = `<div class="empty-state"><div class="empty-icon">⏳</div><p>Assembly in progress — billing domain not yet received</p></div>`;
+      } else {
+        grid.innerHTML = `<div class="empty-state"><div class="empty-icon">📭</div><p>No products found</p></div>`;
+      }
+      return;
+    }
+
+    const TYPES = {
+      broadband: ['Broadband', 'badge-broadband'],
+      mobile:    ['Mobile',    'badge-mobile'],
+      tv:        ['TV',        'badge-tv'],
+    };
+    grid.innerHTML = products.map(p => {
+      const [typeLabel, typeClass] = TYPES[p.product_type] || ['Unknown', 'badge-broadband'];
+      const charge = p.monthly_charge_gbp != null ? `£${Number(p.monthly_charge_gbp).toFixed(2)}/mo` : '—';
+      return `
+        <div class="product-card">
+          <div class="card-header">
+            <span class="type-badge ${typeClass}">${typeLabel}</span>
+            <span class="status s-${p.status || 'active'}">${p.status || '—'}</span>
+          </div>
+          <div class="product-name">${p.product_name || '—'}</div>
+          <div class="product-meta">
+            <div class="meta-row"><span>Since</span><span>${p.effective_date || '—'}</span></div>
+            <div class="meta-row"><span>Monthly</span><span>${charge}</span></div>
+          </div>
+          <div class="product-sku">${p.product_id || ''}</div>
+        </div>`;
+    }).join('');
+  }
+
+  /* ──────────────────────────────────────────────
+     Render provenance panel
+  ────────────────────────────────────────────── */
+  function renderProv(ctx) {
+    const prov = ctx.provenance || {};
+    const ts   = ctx.assembled_at ? new Date(ctx.assembled_at).toLocaleTimeString() : '—';
+
+    // Handle both old (single source_system) and new (source_systems array) provenance format
+    const sources = prov.source_systems
+      ? prov.source_systems.join(', ')
+      : (prov.source_system || '—');
+
+    document.getElementById('p-source').innerHTML = `source <span>${sources}</span>`;
+    document.getElementById('p-time').innerHTML   = `assembled <span>${ts}</span>`;
+    document.getElementById('p-ver').innerHTML    = `version <span>v${ctx.version}</span>`;
+    const sourceLabels = {
+      hot_cache:        `<span style="color:var(--accent)">● hot cache (Tier 2/3)</span>`,
+      permanent_store:  `<span style="color:#7d4c7d">● permanent store (Tier 1)</span>`,
+      assembled:        `<span style="color:#B45309">● assembled on-demand</span>`,
+    };
+    document.getElementById('p-cache').innerHTML = sourceLabels[ctx.retrieval_source]
+      ?? `<span style="color:#B45309">● ${ctx.retrieval_source}</span>`;
+
+    // Collect mappings from domain provenance or flat provenance
+    let allMappings = [];
+    if (prov.domains) {
+      Object.entries(prov.domains).forEach(([domain, dp]) => {
+        if (dp && dp.applied_mappings) {
+          allMappings.push(`── ${domain} domain (${dp.source_system}) ──`);
+          allMappings = allMappings.concat(dp.applied_mappings);
+        }
+      });
+    } else if (prov.applied_mappings) {
+      allMappings = prov.applied_mappings;
+    }
+
+    document.getElementById('mapping-container').innerHTML = `
+      <p style="font-size:11px;color:var(--muted);margin-bottom:10px;">
+        ${allMappings.length} mapping step${allMappings.length !== 1 ? 's' : ''} applied.
+        SoR field names (left) resolved to canonical names (right) via
+        <code style="font-size:10px;background:var(--bg);padding:1px 4px;border-radius:3px;">ontology.py</code>.
+      </p>
+      <div class="mapping-grid">
+        ${allMappings.map(m => {
+          if (m.startsWith('──')) return `<div class="m-der" style="font-style:normal;font-weight:600;color:var(--ink)">${m}</div>`;
+          if (m.includes('[derived]')) return `<div class="m-der">⬡ ${m}</div>`;
+          const [a, b] = m.split(' → ');
+          if (a && b) return `
+            <span class="m-sor">${a.trim()}</span>
+            <span class="m-arr">→</span>
+            <span class="m-can">${b.trim()}</span>`;
+          return `<div class="m-der">${m}</div>`;
+        }).join('')}
+      </div>`;
+  }
+
+  /* ──────────────────────────────────────────────
+     Pending assemblies — polls CDC /pending
+  ────────────────────────────────────────────── */
+  async function refreshPending() {
+    const pending = await apiFetch(`${CDC}/pending`).catch(() => []);
+    const count   = pending.length;
+    document.getElementById('pending-count').textContent = count;
+
+    const rows = document.getElementById('pending-rows');
+    if (!count) {
+      rows.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--faint);padding:12px">No pending assemblies</td></tr>`;
+      return;
+    }
+
+    const now = Date.now();
+    rows.innerHTML = pending.map(pa => {
+      const timeoutMs  = new Date(pa.timeout_at).getTime() - now;
+      const secsLeft   = Math.max(0, Math.round(timeoutMs / 1000));
+      const shortCorr  = (pa.correlation_id || '').slice(0, 8) + '…';
+      const received   = pa.domains_received.map(d => `<span class="meta-pill" style="font-size:8px">${d}</span>`).join(' ');
+      const awaiting   = pa.missing_domains.map(d => `<span style="color:var(--state-partial);font-size:9px;font-weight:600">${d}</span>`).join(', ');
+      return `
+        <tr>
+          <td class="ink">${pa.customer_id}</td>
+          <td>${received}</td>
+          <td>${awaiting || '—'}</td>
+          <td class="mono" title="${pa.correlation_id}">${shortCorr}</td>
+          <td style="color:${secsLeft < 5 ? 'var(--state-timeout)' : 'var(--muted)'};">${secsLeft}s</td>
+        </tr>`;
+    }).join('');
+  }
+
+  /* ──────────────────────────────────────────────
+     Log trace — calls Log Service
+  ────────────────────────────────────────────── */
+  async function refreshLog() {
+    if (!currentId) return;
+    const entries = await apiFetch(`${LOG}/logs/customer/${currentId}?limit=30`).catch(() => []);
+    document.getElementById('log-count').textContent = entries.length;
+
+    const rows = document.getElementById('log-rows');
+    if (!entries.length) {
+      rows.innerHTML = `<div style="text-align:center;color:var(--faint);padding:12px;font-size:11px">No log entries yet</div>`;
+      return;
+    }
+
+    rows.innerHTML = entries.map(e => {
+      const ts       = new Date(e.timestamp).toLocaleTimeString();
+      const svcClass = 'svc-' + (e.service || 'acg').replace(/-/g, '-');
+      const outClass = `out-${e.outcome || 'success'}`;
+      return `
+        <div class="log-entry">
+          <span class="log-ts">${ts}</span>
+          <span class="log-service ${svcClass}">${e.service || '—'}</span>
+          <span class="log-action">${e.action || '—'}</span>
+          <span class="log-reason">${e.reason || ''}</span>
+          <span class="outcome-badge ${outClass}">${e.outcome || 'success'}</span>
+        </div>`;
+    }).join('');
+  }
+
+  /* ──────────────────────────────────────────────
+     Publish CRM event — calls CRM SoR
+  ────────────────────────────────────────────── */
+  async function publishCrmEvent() {
+    if (!currentId) { toast('Load a customer first', 'err'); return; }
+
+    setBtnLoading('crm-trigger-btn', true, 'Publish CRM Event → CDC');
+
+    const fieldVal = document.getElementById('crm-new-value').value.trim();
+    const field    = document.getElementById('crm-field').value;
+
+    const body = fieldVal ? { field, new_value: fieldVal } : null;
+    const data = await apiFetch(`${CRM}/customers/${currentId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: body ? JSON.stringify(body) : '{}',
+    });
+
+    setBtnLoading('crm-trigger-btn', false, 'Publish CRM Event → CDC');
+    document.getElementById('crm-new-value').value = '';
+
+    const msg = data.change_applied
+      ? `CRM: ${data.change_applied.field} updated  ·  ${data.assembly_status}`
+      : `CRM re-emitted  ·  ${data.assembly_status}`;
+    toast(msg, data.assembly_status === 'complete' ? 'ok' : '');
+
+    await loadHoldings();
+  }
+
+  /* ──────────────────────────────────────────────
+     Update existing subscription — calls Billing SoR
+  ────────────────────────────────────────────── */
+  async function updateBillingSubscription() {
+    if (!currentId) { toast('Load a customer first', 'err'); return; }
+
+    setBtnLoading('billing-update-btn', true, 'Update Subscription');
+
+    const sku       = document.getElementById('trigger-sku').value;
+    const stat      = document.getElementById('trigger-stat').value || null;
+    const chargeStr = document.getElementById('trigger-charge').value;
+    const charge    = chargeStr ? parseFloat(chargeStr) : null;
+
+    let body = {};
+    if (sku) {
+      const upd = { product_sku: sku };
+      if (stat !== null)   upd.new_stat           = stat;
+      if (charge !== null) upd.new_monthly_charge = charge;
+      body = { update: upd };
+    }
+
+    const data = await apiFetch(`${BILLING}/customers/${currentId}`, {
+      method:  'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(body),
+    });
+
+    setBtnLoading('billing-update-btn', false, 'Update Subscription');
+
+    const c = data.change_applied;
+    let msg;
+    if (!c) {
+      msg = `Billing re-emitted  ·  ${data.assembly_status}`;
+    } else if (c.operation === 'update') {
+      const changes = Object.entries(c.changes).map(([k, v]) => `${k}: ${v}`).join(', ');
+      msg = `${c.product_sku} updated (was: ${changes})  ·  ${data.assembly_status}`;
+    } else {
+      msg = `Billing updated  ·  ${data.assembly_status}`;
+    }
+    toast(msg, data.assembly_status === 'complete' ? 'ok' : '');
+    await loadHoldings();
+  }
+
+  /* ──────────────────────────────────────────────
+     Add new subscription — calls Billing SoR
+  ────────────────────────────────────────────── */
+  async function addBillingSubscription() {
+    if (!currentId) { toast('Load a customer first', 'err'); return; }
+
+    const sku    = document.getElementById('add-sku').value;
+    const charge = parseFloat(document.getElementById('add-charge').value);
+    const term   = parseInt(document.getElementById('add-term').value) || 1;
+
+    if (!sku)                 { toast('Select a product to add', 'err');   return; }
+    if (!charge || charge <= 0) { toast('Enter a monthly charge', 'err'); return; }
+
+    setBtnLoading('billing-add-btn', true, 'Add Subscription');
+
+    const data = await apiFetch(`${BILLING}/customers/${currentId}`, {
+      method:  'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ add: { sku, monthly_charge: charge, contract_term_months: term } }),
+    });
+
+    setBtnLoading('billing-add-btn', false, 'Add Subscription');
+
+    const c = data.change_applied;
+    const msg = c
+      ? `${c.sku} added at £${c.monthly_charge}/mo  ·  ${data.assembly_status}`
+      : `Billing updated  ·  ${data.assembly_status}`;
+    toast(msg, data.assembly_status === 'complete' ? 'ok' : '');
+    await loadHoldings();
+  }
+
+  /* ──────────────────────────────────────────────
+     Populate update-SKU dropdown from billing record
+  ────────────────────────────────────────────── */
+  function populateTriggerSkus(billing) {
+    const sel = document.getElementById('trigger-sku');
+    sel.innerHTML = '<option value="">— re-emit (no change) —</option>';
+    (billing.sub_lines || []).forEach(p => {
+      const o = document.createElement('option');
+      o.value = p.sku;
+      const statLabel = p.stat === 'A' ? 'active' : p.stat === 'S' ? 'susp' : 'canc';
+      o.textContent = `${p.sku}  (${statLabel})`;
+      sel.appendChild(o);
+    });
+  }
+
+  /* ──────────────────────────────────────────────
+     Populate add-SKU dropdown from catalogue, filtered to exclude held SKUs.
+     Prefills monthly charge and contract terms when a product is selected.
+  ────────────────────────────────────────────── */
+  async function populateAvailableSkus(billing) {
+    const addSku  = document.getElementById('add-sku');
+    const addTerm = document.getElementById('add-term');
+
+    const heldSkus = new Set((billing.sub_lines || []).map(s => s.sku));
+
+    let catalogue = [];
+    try {
+      catalogue = await apiFetch(`${CATALOGUE}/products`);
+    } catch (e) {
+      addSku.innerHTML = '<option value="">Catalogue unavailable</option>';
+      return;
+    }
+
+    // Store for on-change price/term prefill
+    window._catMap = Object.fromEntries(catalogue.map(p => [p.sku, p]));
+
+    const available = catalogue.filter(p => !heldSkus.has(p.sku));
+    if (!available.length) {
+      addSku.innerHTML = '<option value="">All products already held</option>';
+      return;
+    }
+
+    addSku.innerHTML = '<option value="">— select product —</option>';
+    available.forEach(p => {
+      const o = document.createElement('option');
+      o.value = p.sku;
+      o.textContent = `${p.sku} — £${p.list_price_gbp}/mo`;
+      addSku.appendChild(o);
+    });
+
+    addSku.onchange = () => {
+      const p = window._catMap[addSku.value];
+      if (p) {
+        document.getElementById('add-charge').value = p.list_price_gbp;
+        const terms = (p.available_terms_months && p.available_terms_months.length)
+          ? p.available_terms_months
+          : [1, 12, 24];
+        addTerm.innerHTML = terms.map(t =>
+          `<option value="${t}">${t === 1 ? '1 month (rolling)' : t + ' months'}</option>`
+        ).join('');
+      } else {
+        document.getElementById('add-charge').value = '';
+        addTerm.innerHTML = '<option value="1">1 month (rolling)</option>';
+      }
+    };
+  }
+
+  /* ──────────────────────────────────────────────
+     Toggle raw record blocks
+  ────────────────────────────────────────────── */
+  function toggleRaw(which) {
+    if (which === 'crm') {
+      rawCrmOpen = !rawCrmOpen;
+      document.getElementById('raw-crm-body').classList.toggle('open', rawCrmOpen);
+      document.getElementById('raw-crm-label').textContent = (rawCrmOpen ? '▼' : '▶') + ' crm-sor record';
+    } else {
+      rawBillingOpen = !rawBillingOpen;
+      document.getElementById('raw-billing-body').classList.toggle('open', rawBillingOpen);
+      document.getElementById('raw-billing-label').textContent = (rawBillingOpen ? '▼' : '▶') + ' billing-sor record';
+    }
+  }
+
+  /* ──────────────────────────────────────────────
+     Toggle collapsible panels
+  ────────────────────────────────────────────── */
+  function togglePanel(name) {
+    panelOpen[name] = !panelOpen[name];
+    document.getElementById(`${name}-body`).classList.toggle('open', panelOpen[name]);
+    document.getElementById(`${name}-tog`).textContent = panelOpen[name] ? '▼' : '▶';
+  }
+
+  /* ──────────────────────────────────────────────
+     Helpers
+  ────────────────────────────────────────────── */
+  async function apiFetch(url, options = {}) {
+    // Inject the ACG Bearer token for all calls to the Agent Context Gateway
+    if (url.startsWith(ACG) && _authToken) {
+      options = {
+        ...options,
+        headers: { ..._authHeaders(), ...(options.headers || {}) },
+      };
+    }
+    const res = await fetch(url, options);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || res.statusText);
+    }
+    return res.json();
+  }
+
+  function setBtnLoading(id, loading, label) {
+    const btn    = document.getElementById(id);
+    btn.disabled = loading;
+    btn.innerHTML = loading ? '<span class="spinner"></span>' : label;
+  }
+
+  let _toastTimer;
+  function toast(msg, type = '') {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.className   = `toast ${type} show`;
+    clearTimeout(_toastTimer);
+    _toastTimer = setTimeout(() => el.classList.remove('show'), 3500);
+  }
+
+  init();
+</script>
+</body>
+</html>

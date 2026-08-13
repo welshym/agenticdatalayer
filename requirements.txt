@@ -1,0 +1,10 @@
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+pydantic==2.10.3
+httpx==0.28.1
+mcp>=1.0.0
+pydantic-graph>=0.0.14
+networkx==3.4.2
+pyyaml==6.0.2
+pytest==8.3.4
+PyJWT>=2.8.0

@@ -1,0 +1,133 @@
+# Billing SoR — Customer Subscription Records
+# =============================================
+# Authoritative per-customer subscription state for the mocked billing system.
+# Edit this file to change subscription data, statuses, or discount codes.
+# Changes take effect on next service startup.
+#
+# Fields mirror the SoR raw schema:
+#   cust_ref              — SoR customer reference key (foreign key to CRM)
+#   sub_lines[]           — list of subscription lines
+#     sku                 — product SKU (foreign key to catalogue)
+#     stat                — status: A (active), S (suspended), C (cancelled)
+#     eff_from            — effective-from date (ISO 8601)
+#     list_price_gbp      — catalogue list price in GBP at time of last billing event;
+#                           used as the base price for discount rule evaluation
+#     monthly_charge      — contracted price in GBP paid by the customer after all
+#                           applicable discounts have been applied
+#     total_discount_pct  — combined discount percentage across all fired policies
+#     applied_discounts   — policies that fired: [{policy_id, discount_pct, reason}]
+#     contract_term_months — contract duration: 1 = monthly rolling, 24 = two-year
+#
+# Discounts are evaluated at billing-event time (recalculate, new subscription).
+# The same rules/discounts.yaml policies are re-applied whenever monthly_charge
+# is recalculated from an updated list price.
+
+customers:
+
+  - cust_ref: C001
+    sub_lines:
+      - sku: BB-FIBRE-1G
+        stat: A
+        eff_from: "2024-01-15"
+        list_price_gbp: 45.00
+        monthly_charge: 40.50
+        total_discount_pct: 10.0
+        applied_discounts:
+          - policy_id: contract_duration_2yr
+            discount_pct: 10.0
+            reason: "24-month contract discount"
+        contract_term_months: 24
+      - sku: TV-SPORTS-PKG
+        stat: A
+        eff_from: "2024-03-01"
+        list_price_gbp: 20.00
+        monthly_charge: 20.00
+        total_discount_pct: 0.0
+        applied_discounts: []
+        contract_term_months: 1
+
+  - cust_ref: C002
+    sub_lines:
+      - sku: MOB-5G-UNLIM
+        stat: A
+        eff_from: "2023-11-01"
+        list_price_gbp: 35.00
+        monthly_charge: 35.00
+        total_discount_pct: 0.0
+        applied_discounts: []
+        contract_term_months: 12
+
+  - cust_ref: C003
+    sub_lines:
+      - sku: BB-FTTC-100
+        stat: A
+        eff_from: "2023-06-10"
+        list_price_gbp: 28.00
+        monthly_charge: 25.20
+        total_discount_pct: 10.0
+        applied_discounts:
+          - policy_id: contract_duration_2yr
+            discount_pct: 10.0
+            reason: "24-month contract discount"
+        contract_term_months: 24
+      - sku: MOB-SIM-12GB
+        stat: S
+        eff_from: "2024-02-01"
+        list_price_gbp: 12.00
+        monthly_charge: 12.00
+        total_discount_pct: 0.0
+        applied_discounts: []
+        contract_term_months: 1
+
+  - cust_ref: C004
+    sub_lines:
+      - sku: TV-FULL-HSE
+        stat: A
+        eff_from: "2022-09-15"
+        list_price_gbp: 55.00
+        monthly_charge: 44.00
+        total_discount_pct: 20.0
+        applied_discounts:
+          - policy_id: contract_duration_2yr
+            discount_pct: 10.0
+            reason: "24-month contract discount"
+          - policy_id: high_value_contract
+            discount_pct: 10.0
+            reason: "High-value contract discount (>£100/month)"
+        contract_term_months: 24
+      - sku: BB-FIBRE-500
+        stat: A
+        eff_from: "2022-09-15"
+        list_price_gbp: 38.00
+        monthly_charge: 30.40
+        total_discount_pct: 20.0
+        applied_discounts:
+          - policy_id: contract_duration_2yr
+            discount_pct: 10.0
+            reason: "24-month contract discount"
+          - policy_id: high_value_contract
+            discount_pct: 10.0
+            reason: "High-value contract discount (>£100/month)"
+        contract_term_months: 24
+      - sku: MOB-5G-UNLIM
+        stat: A
+        eff_from: "2023-01-20"
+        list_price_gbp: 35.00
+        monthly_charge: 31.50
+        total_discount_pct: 10.0
+        applied_discounts:
+          - policy_id: high_value_contract
+            discount_pct: 10.0
+            reason: "High-value contract discount (>£100/month)"
+        contract_term_months: 12
+
+  - cust_ref: C005
+    sub_lines:
+      - sku: BB-FIBRE-500
+        stat: A
+        eff_from: "2024-05-01"
+        list_price_gbp: 38.00
+        monthly_charge: 38.00
+        total_discount_pct: 0.0
+        applied_discounts: []
+        contract_term_months: 1

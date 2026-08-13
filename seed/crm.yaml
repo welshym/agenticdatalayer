@@ -1,0 +1,44 @@
+# CRM SoR — Customer Identity Records
+# =====================================
+# Authoritative customer identity data for the mocked CRM system.
+# Edit this file to add, remove, or change customers.
+# Changes take effect on next service startup.
+#
+# Fields mirror the SoR raw schema (abbreviated names):
+#   cust_ref  — SoR customer reference key
+#   first_nm  — first name (maps to first_name via ontology)
+#   last_nm   — last name  (maps to last_name via ontology)
+#   email     — email address (carried through unchanged)
+#   phone     — phone number  (carried through unchanged)
+
+customers:
+
+  - cust_ref: C001
+    first_nm: Alice
+    last_nm: Brown
+    email: alice.brown@example.com
+    phone: "+44-7700-900001"
+
+  - cust_ref: C002
+    first_nm: Ben
+    last_nm: Sharma
+    email: ben.sharma@example.com
+    phone: "+44-7700-900002"
+
+  - cust_ref: C003
+    first_nm: Clare
+    last_nm: O'Brien
+    email: clare.obrien@example.com
+    phone: "+44-7700-900003"
+
+  - cust_ref: C004
+    first_nm: David
+    last_nm: Kim
+    email: david.kim@example.com
+    phone: "+44-7700-900004"
+
+  - cust_ref: C005
+    first_nm: Eva
+    last_nm: Müller
+    email: eva.muller@example.com
+    phone: "+44-7700-900005"
