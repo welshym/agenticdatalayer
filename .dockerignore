@@ -1,0 +1,7 @@
+.git
+logs
+*.log
+.pid_*
+deploy/terraform
+__pycache__
+*.pyc

@@ -1,0 +1,42 @@
+{
+  "family": "bcl-all-in-one",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "2048",
+  "memory": "4096",
+  "runtimePlatform": { "cpuArchitecture": "X86_64", "operatingSystemFamily": "LINUX" },
+  "executionRoleArn": "arn:aws:iam::054663422011:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::054663422011:role/bcl-task-role",
+  "containerDefinitions": [
+    {
+      "name": "bcl-all-in-one",
+      "image": "054663422011.dkr.ecr.us-east-1.amazonaws.com/bcl/all-in-one:latest",
+      "essential": true,
+      "portMappings": [
+        { "containerPort": 8010, "protocol": "tcp" },
+        { "containerPort": 8011, "protocol": "tcp" },
+        { "containerPort": 8012, "protocol": "tcp" },
+        { "containerPort": 8013, "protocol": "tcp" },
+        { "containerPort": 8014, "protocol": "tcp" },
+        { "containerPort": 8015, "protocol": "tcp" },
+        { "containerPort": 8016, "protocol": "tcp" },
+        { "containerPort": 8017, "protocol": "tcp" },
+        { "containerPort": 8018, "protocol": "tcp" }
+      ],
+      "environment": [
+        { "name": "BEDROCK_MODEL", "value": "amazon.nova-lite-v1:0" },
+        { "name": "AWS_REGION", "value": "us-east-1" },
+        { "name": "AWS_DEFAULT_REGION", "value": "us-east-1" }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/bcl/all-in-one",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "bcl"
+        }
+      }
+    }
+  ],
+  "tags": [{ "key": "Project", "value": "BCL" }]
+}

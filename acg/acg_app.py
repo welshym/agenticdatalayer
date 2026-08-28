@@ -21,7 +21,9 @@ Routes:
 """
 from __future__ import annotations
 
+import asyncio
 import json
+import os
 import types as builtin_types
 import typing
 from contextlib import asynccontextmanager
@@ -36,6 +38,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request, Security
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from pydantic import BaseModel
 from mcp.server import Server as McpServer
 from mcp.server.sse import SseServerTransport
 from mcp.types import TextContent, Tool
@@ -47,6 +50,19 @@ import ontology
 CACHE_URL = "http://localhost:8012"
 LOG_URL   = "http://localhost:8015"
 OFFER_URL = "http://localhost:8016"
+
+# Bedrock LLM config — the container's task role supplies credentials at runtime.
+BEDROCK_MODEL  = os.getenv("BEDROCK_MODEL", "amazon.nova-lite-v1:0")
+BEDROCK_REGION = os.getenv("AWS_REGION", os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
+_bedrock: dict[str, Any] = {}
+
+
+def _get_bedrock():
+    """Lazily create a shared bedrock-runtime client (boto3 is optional at import time)."""
+    if "client" not in _bedrock:
+        import boto3  # imported lazily so the service still boots without boto3 installed
+        _bedrock["client"] = boto3.client("bedrock-runtime", region_name=BEDROCK_REGION)
+    return _bedrock["client"]
 
 UI_PATH = Path(__file__).parent / "ui" / "index.html"
 
@@ -582,6 +598,94 @@ async def get_compatible_offers(customer_id: str, _token: dict = Depends(_requir
         deps=_make_compatible_offers_deps(),
     )
     return run_result.output
+
+
+class ChatRequest(BaseModel):
+    customer_id: str
+    question: str
+
+
+_CHAT_SYSTEM = (
+    "You are the Business Context Layer assistant for a telecom/retail operator. "
+    "Answer the user's question about the given customer using ONLY the CONTEXT block below. "
+    "The context is the authoritative, governed record assembled by the platform. "
+    "Be concise and specific: cite product names, contract terms, prices and savings where relevant. "
+    "If the answer is not present in the context, say you don't have that information — never invent data. "
+    "Do not mention JSON, fields, or that you were given a context block; answer naturally."
+)
+
+
+@app.post("/chat", summary="Grounded natural-language chat over a customer's assembled context")
+async def chat(req: ChatRequest, _token: dict = Depends(_require_jwt)) -> dict[str, Any]:
+    """
+    Retrieves the customer's governed context (and compatible offers), grounds a Bedrock
+    LLM on it via the Converse API, and returns a natural-language answer. The retrieval
+    path is the same governed two-tier plan used by /context and /compatible-offers.
+    """
+    # 1. Assemble grounding context via the governed retrieval plans (raises 404 if unknown)
+    context = await get_context(req.customer_id, _token)
+    try:
+        offers = await get_compatible_offers(req.customer_id, _token)
+    except HTTPException:
+        offers = {}
+    except Exception:
+        offers = {}
+
+    grounding = {
+        "customer_id":      context.get("customer_id"),
+        "profile":          context.get("profile"),
+        "commercial_state": context.get("commercial_state"),
+        "discount_summary": context.get("discount_summary"),
+        "assembly_state":   context.get("assembly_state"),
+        "compatible_offers": offers.get("compatible_products", []),
+        "held_skus":        offers.get("held_skus", []),
+    }
+    prompt = (
+        f"CONTEXT (customer {req.customer_id}):\n"
+        f"{json.dumps(grounding, default=str, indent=2)}\n\n"
+        f"QUESTION: {req.question}"
+    )
+
+    # 2. Call Bedrock Converse (sync SDK → offloaded to a thread)
+    def _invoke() -> str:
+        client = _get_bedrock()
+        resp = client.converse(
+            modelId=BEDROCK_MODEL,
+            system=[{"text": _CHAT_SYSTEM}],
+            messages=[{"role": "user", "content": [{"text": prompt}]}],
+            inferenceConfig={"maxTokens": 500, "temperature": 0.2, "topP": 0.9},
+        )
+        return resp["output"]["message"]["content"][0]["text"].strip()
+
+    try:
+        answer = await asyncio.to_thread(_invoke)
+    except Exception as exc:
+        # Surface a clean error so the UI can fall back to the deterministic engine
+        raise HTTPException(status_code=502, detail=f"LLM unavailable: {type(exc).__name__}: {exc}")
+
+    # Fire-and-forget audit log
+    try:
+        await _http["log_http"].post("/logs", json={
+            "service":     "acg",
+            "action":      "chat_answered",
+            "reason":      f"LLM chat answered for {req.customer_id}",
+            "customer_id": req.customer_id,
+            "outcome":     "success",
+            "details":     {"model": BEDROCK_MODEL},
+        })
+    except Exception:
+        pass
+
+    return {
+        "answer":      answer,
+        "model":       BEDROCK_MODEL,
+        "source":      "bedrock",
+        "customer_id": req.customer_id,
+        "grounded_on": {
+            "assembly_state":   grounding["assembly_state"],
+            "compatible_count": len(grounding["compatible_offers"]),
+        },
+    }
 
 
 @app.get("/compatible-offers-plan", summary="Serialised compatible offers retrieval graph (nodes + edges)")

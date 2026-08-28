@@ -281,6 +281,68 @@
     .toast.show { transform: translateY(0); opacity: 1; }
     .toast.ok  { background: var(--accent); }
     .toast.err { background: #B91C1C; }
+
+    /* ── Tabs ── */
+    .tabbar { display:flex; gap:6px; background:var(--panel); border-bottom:1px solid var(--line); padding:8px 1.25rem 0; overflow-x:auto; }
+    .tab { border:none; background:transparent; padding:9px 16px; font:inherit; font-size:13px; font-weight:600; color:var(--muted); cursor:pointer; border-bottom:2px solid transparent; border-radius:6px 6px 0 0; white-space:nowrap; }
+    .tab:hover { color:var(--ink); background:var(--bg); }
+    .tab.active { color:var(--accent-ink); border-bottom-color:var(--accent); }
+    .view { display:none; }
+    .view.active { display:block; }
+
+    /* ── Doc (Overview) ── */
+    .doc { max-width:1080px; margin:0 auto; padding:1.5rem 1.75rem 3rem; overflow-y:auto; max-height:calc(100vh - 100px); }
+    .doc h1 { font-family:'Fraunces',serif; font-size:1.7rem; color:var(--ink); margin-bottom:6px; }
+    .doc .lead { font-size:15px; color:var(--muted); margin-bottom:20px; max-width:74ch; line-height:1.6; }
+    .doc h2 { font-family:'Fraunces',serif; font-size:1.15rem; color:var(--accent-ink); margin:26px 0 10px; padding-top:16px; border-top:1px solid var(--line); }
+    .doc h3 { font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--faint); margin:14px 0 6px; }
+    .doc p { font-size:13.5px; color:var(--ink); line-height:1.65; margin-bottom:10px; max-width:82ch; }
+    .doc ul { margin:0 0 12px; padding:0; list-style:none; display:flex; flex-direction:column; gap:7px; }
+    .doc li { font-size:13px; line-height:1.5; color:var(--ink); padding-left:20px; position:relative; max-width:84ch; }
+    .doc li::before { content:'▸'; color:var(--accent); position:absolute; left:2px; }
+    .doc code { background:var(--bg); border:0.5px solid var(--line); border-radius:4px; padding:1px 5px; font-family:'Menlo',monospace; font-size:11px; color:var(--accent-ink); }
+    .layer-grid, .feat-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:12px; margin:10px 0 6px; }
+    .layer-card, .feat { border:1px solid var(--line); border-radius:10px; padding:14px; background:var(--panel); }
+    .lc-tag { font-size:8px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
+    .layer-card h4, .feat h4 { font-size:13px; margin:6px 0 3px; color:var(--ink); }
+    .layer-card p, .feat p { font-size:11.5px; color:var(--muted); line-height:1.5; margin:0; }
+    .layer-card .port { font-family:monospace; font-size:10px; color:var(--faint); margin:0 0 4px; }
+    .feat .ic { font-size:20px; }
+
+    /* ── Use cases (Full Demo) ── */
+    .uc { border:1px solid var(--line); border-radius:12px; background:var(--panel); margin-bottom:16px; overflow:hidden; }
+    .uc-head { display:flex; align-items:center; gap:12px; padding:13px 16px; background:var(--bg); border-bottom:1px solid var(--line); flex-wrap:wrap; }
+    .uc-num { width:30px; height:30px; border-radius:50%; background:var(--accent); color:#fff; display:grid; place-items:center; font-weight:700; flex:none; }
+    .uc-title { font-family:'Fraunces',serif; font-size:1.05rem; color:var(--ink); }
+    .uc-sub { font-size:11.5px; color:var(--muted); flex-basis:100%; }
+    .uc-run { margin-left:auto; width:auto; padding:8px 16px; }
+    .uc-body { padding:12px 16px; }
+    .step { display:grid; grid-template-columns:24px 1fr; gap:10px; padding:8px 0; border-bottom:0.5px dashed var(--line); }
+    .step:last-of-type { border-bottom:none; }
+    .step-n { width:22px; height:22px; border-radius:50%; background:var(--accent-soft); color:var(--accent-ink); display:grid; place-items:center; font-size:11px; font-weight:700; }
+    .step-b .who { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--accent-ink); }
+    .step-b .what { font-size:12.5px; color:var(--ink); margin:2px 0; }
+    .step-b .data { font-size:10.5px; color:var(--muted); }
+    .step-b .data b { color:var(--ink); }
+    .uc-out { margin-top:12px; background:#0f1e1a; color:#d7e2dd; border-radius:8px; padding:12px; font-family:'Menlo',monospace; font-size:10.5px; line-height:1.5; white-space:pre-wrap; word-break:break-word; max-height:360px; overflow:auto; display:none; }
+    .uc-out.show { display:block; }
+
+    /* ── Chat with data ── */
+    .chat-wrap { max-width:920px; margin:0 auto; padding:1rem 1.25rem 1.25rem; display:flex; flex-direction:column; height:calc(100vh - 104px); }
+    .chat-head { display:flex; align-items:center; gap:10px; margin-bottom:10px; flex-wrap:wrap; }
+    .chat-title { font-family:'Fraunces',serif; font-size:1.15rem; color:var(--accent-ink); }
+    .chat-msgs { flex:1; overflow-y:auto; border:1px solid var(--line); border-radius:12px; background:var(--panel); padding:16px; display:flex; flex-direction:column; gap:11px; }
+    .msg { max-width:78%; padding:10px 13px; border-radius:13px; font-size:13px; line-height:1.55; white-space:pre-wrap; word-break:break-word; }
+    .msg.user { align-self:flex-end; background:var(--accent); color:#fff; border-bottom-right-radius:3px; }
+    .msg.bot  { align-self:flex-start; background:var(--bg); border:1px solid var(--line); color:var(--ink); border-bottom-left-radius:3px; }
+    .msg .src { display:block; margin-top:7px; font-size:9.5px; color:var(--faint); border-top:0.5px solid var(--line); padding-top:5px; }
+    .msg.bot code { background:var(--panel); border:0.5px solid var(--line); border-radius:3px; padding:0 4px; font-size:11px; }
+    .chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:2px; align-self:flex-start; max-width:92%; }
+    .chip { background:var(--accent-soft); color:var(--accent-ink); border:0.5px solid var(--line); border-radius:999px; padding:5px 11px; font-size:11px; cursor:pointer; }
+    .chip:hover { background:#d3efe4; }
+    .chat-input { display:flex; gap:8px; margin-top:10px; }
+    .chat-input input { flex:1; }
+    .chat-typing { font-size:11px; color:var(--faint); font-style:italic; align-self:flex-start; }
   </style>
 </head>
 <body>
@@ -345,6 +407,15 @@
   </div>
 </nav>
 
+<!-- Tab bar -->
+<div class="tabbar">
+  <button class="tab active" data-tab="explorer" onclick="showTab('explorer')">Explorer</button>
+  <button class="tab" data-tab="overview" onclick="showTab('overview')">Overview</button>
+  <button class="tab" data-tab="fulldemo" onclick="showTab('fulldemo')">Full Demo</button>
+  <button class="tab" data-tab="chat" onclick="showTab('chat')">💬 Chat</button>
+</div>
+
+<section id="view-explorer" class="view active">
 <div class="page">
 
   <!-- ── Left sidebar ── -->
@@ -360,6 +431,27 @@
     </div>
 
     <button class="btn btn-primary" id="load-btn" onclick="loadHoldings()">Load Holdings via ACG</button>
+
+    <button class="btn btn-outline" id="docs-btn" onclick="openDocs()" style="margin-top:6px;">📖 View API Docs (Swagger)</button>
+
+    <button class="btn btn-primary" id="chat-btn" onclick="openChat()" style="margin-top:6px;background:var(--layer-ctx);">💬 Chat with data</button>
+
+    <hr class="sidebar-divider">
+
+    <!-- Test Scenarios -->
+    <div>
+      <p class="sidebar-section-head" style="background:var(--layer-ag-bg);color:var(--layer-ag);">Test Scenarios</p>
+      <p class="field-label" style="margin-bottom:6px;">One-click flows that emulate common agent interactions. Results appear in the <strong>Scenario Output</strong> panel.</p>
+      <div class="trigger-form">
+        <button class="btn btn-outline" onclick="runScenario('healthy')">① Healthy read — assemble C001 context</button>
+        <button class="btn btn-outline" onclick="runScenario('offers')">② Compatible offers — C001</button>
+        <button class="btn btn-outline" onclick="runScenario('cache')">③ Cache status — both tiers</button>
+        <button class="btn btn-exp" onclick="runScenario('govern-add')">④ Governed write — add sub (purchase-agent)</button>
+        <button class="btn btn-exp" onclick="runScenario('govern-cancel')">⑤ Governed write — cancel sub (purchase-agent)</button>
+        <button class="btn btn-sor" onclick="runScenario('denied')">⑥ Denied write — ui-client (no perms)</button>
+        <button class="btn btn-outline" onclick="runScenario('audit')">⑦ View Action Broker audit log</button>
+      </div>
+    </div>
 
     <hr class="sidebar-divider">
 
@@ -495,6 +587,19 @@
       </div>
     </section>
 
+    <!-- Scenario Output -->
+    <section class="panel" id="scn-panel">
+      <div class="panel-bar" style="background:var(--accent-soft);border-bottom:0.5px solid var(--line);" onclick="togglePanel('scn')">
+        <span class="panel-bar-title" style="color:var(--accent-ink);">Scenario Output</span>
+        <span class="meta-pill" id="scn-status">idle</span>
+        <span style="font-size:9px;color:var(--accent-ink)">last test-scenario result</span>
+        <span class="tog-arrow" id="scn-tog">▼</span>
+      </div>
+      <div class="panel-body open" id="scn-body">
+        <pre class="raw-json" id="scn-out" style="font-size:10px;max-height:280px;overflow:auto;white-space:pre-wrap;">Run a Test Scenario from the left panel to see results here.</pre>
+      </div>
+    </section>
+
     <!-- Pending Assemblies -->
     <section class="panel" id="pending-panel">
       <div class="panel-bar pending-bar" onclick="togglePanel('pending')">
@@ -550,6 +655,173 @@
 
   </main>
 </div>
+</section>
+
+<!-- ══════════════ OVERVIEW ══════════════ -->
+<section id="view-overview" class="view">
+  <div class="doc">
+    <h1>Business Context Layer — Overview</h1>
+    <p class="lead">A runnable demonstration of an agentic data-access layer for a Telco. It turns raw records
+      from disconnected Systems of Record into a single clean, <em>governed</em> "context packet" that any AI agent
+      can read — and routes every write through a permission-gated broker with a full audit trail.</p>
+
+    <h2>The four architectural layers</h2>
+    <div class="layer-grid">
+      <div class="layer-card"><div class="lc-tag" style="color:var(--layer-ag)">Agentic layer</div><h4>Agent Context Gateway (ACG)</h4><div class="port">:8013</div><p>The single entry point agents use to READ context. Cache-first retrieval, pydantic-graph plan, MCP SSE server, compatible-offers endpoint.</p></div>
+      <div class="layer-card"><div class="lc-tag" style="color:var(--layer-ag)">Agentic layer</div><h4>Action Broker</h4><div class="port">:8018</div><p>The single entry point for WRITES. JWT auth, permission gate, payload validation, immutable audit, forwards to the SoR.</p></div>
+      <div class="layer-card"><div class="lc-tag" style="color:var(--layer-ctx)">Business Context</div><h4>CDC Assembly</h4><div class="port">:8011</div><p>Consumes raw SoR events, applies ontology field mappings, performs a stateful cross-domain join (30s timeout → partial).</p></div>
+      <div class="layer-card"><div class="lc-tag" style="color:var(--layer-ctx)">Business Context</div><h4>Context Cache</h4><div class="port">:8012</div><p>Two tiers — a permanent store (all known customers, never evicted) plus an evictable hot cache.</p></div>
+      <div class="layer-card"><div class="lc-tag" style="color:var(--layer-ctx)">Business Context</div><h4>Offer Engine</h4><div class="port">:8016</div><p>Walks the product catalogue graph to compute commercially compatible next-best offers.</p></div>
+      <div class="layer-card"><div class="lc-tag" style="color:var(--layer-sor)">Systems of Record</div><h4>CRM · Catalogue · Billing</h4><div class="port">:8010 · :8014 · :8017</div><p>Mock source systems for identity, product master data and subscriptions. They emit change events on update.</p></div>
+      <div class="layer-card"><div class="lc-tag" style="color:var(--muted)">Cross-cutting</div><h4>Logging Service</h4><div class="port">:8015</div><p>Structured assembly log — every decision the pipeline makes is traceable per customer.</p></div>
+    </div>
+
+    <h2>Key capabilities</h2>
+    <div class="feat-grid">
+      <div class="feat"><div class="ic">🧩</div><h4>Canonical context assembly</h4><p>Heterogeneous SoR fields are mapped to one canonical schema via <code>ontology.py</code>. Agents never see SoR-specific field names or know which systems exist.</p></div>
+      <div class="feat"><div class="ic">⚡</div><h4>Cache-first reads</h4><p>Served from the hot cache or permanent store; on-demand assembly only when needed. Each response tags its <code>retrieval_source</code>.</p></div>
+      <div class="feat"><div class="ic">🔗</div><h4>Event-driven CDC</h4><p>SoR changes emit events; CDC joins the CRM + Billing domains within a 30-second window, producing <code>complete</code> or <code>partial_timed_out</code> assemblies.</p></div>
+      <div class="feat"><div class="ic">🛡️</div><h4>Governed writes</h4><p>The Action Broker checks the caller's declared permissions, validates the payload against the write-route schema, and only then forwards to the SoR.</p></div>
+      <div class="feat"><div class="ic">📜</div><h4>Immutable audit</h4><p>Every write intent — permitted or denied — is recorded in an append-only audit log with the decision and reason.</p></div>
+      <div class="feat"><div class="ic">🎯</div><h4>Compatible offers</h4><p>The Offer Engine returns only commercially valid upsell / cross-sell products for a customer's current holdings.</p></div>
+      <div class="feat"><div class="ic">🔌</div><h4>MCP SSE server</h4><p>ACG exposes a Model Context Protocol endpoint so agent runtimes connect and stream context over SSE.</p></div>
+      <div class="feat"><div class="ic">🕐</div><h4>Freshness &amp; provenance</h4><p>Each packet carries an assembled-at timestamp, source systems, applied field mappings and a version — full lineage.</p></div>
+    </div>
+
+    <h2>The Explorer tab</h2>
+    <p>The <b>Explorer</b> tab is a hands-on console: pick a customer to load their assembled holdings via the ACG,
+      inspect the raw CRM &amp; Billing records, publish CRM change events, and add / update / cancel billing
+      subscriptions — watching the pending-assembly queue, structured log trace and ontology provenance update in
+      real time. It also includes quick <b>Test Scenarios</b> and a <b>View API Docs</b> button.</p>
+
+    <h2>API surface</h2>
+    <h3>Agent Context Gateway — reads</h3>
+    <ul>
+      <li><code>GET /context/{id}</code> — execute the retrieval plan and return the assembled context packet</li>
+      <li><code>GET /compatible-offers/{id}</code> — held products plus commercially compatible offers</li>
+      <li><code>GET /cache-status</code> — population of both cache tiers</li>
+      <li><code>GET /retrieval-plan</code> · <code>/ontology</code> — introspect the plan graph and assembly spec</li>
+      <li><code>GET /mcp/sse</code> — MCP streaming endpoint for agent runtimes</li>
+    </ul>
+    <h3>Action Broker — writes</h3>
+    <ul>
+      <li><code>POST /token</code> — issue a demo JWT for a named client (e.g. <code>ui-client</code>, <code>purchase-agent</code>)</li>
+      <li><code>POST /submit-intent</code> — submit a governed write intent</li>
+      <li><code>GET /permissions</code> · <code>/write-routes</code> — introspect what each caller may do</li>
+      <li><code>GET /audit</code> — the immutable audit log</li>
+    </ul>
+
+    <h2>How it's deployed</h2>
+    <p>Packaged as a container and run on <b>AWS ECS Fargate</b> behind an <b>Application Load Balancer</b>
+      (account 054663422011, us-east-1). Every resource is tagged <code>Project=BCL</code>; image pulls go over
+      private VPC endpoints (ECR / S3 / CloudWatch Logs).</p>
+  </div>
+</section>
+
+<!-- ══════════════ FULL DEMO ══════════════ -->
+<section id="view-fulldemo" class="view">
+  <div class="doc">
+    <h1>Full Demo — 5 end-to-end use cases</h1>
+    <p class="lead">Each use case runs <b>live against the deployed services</b>. Click <b>Run live</b> to execute the
+      flow and watch the real request / response data produced, sent and consumed at every step.</p>
+
+    <!-- UC1 -->
+    <div class="uc">
+      <div class="uc-head">
+        <span class="uc-num">1</span><span class="uc-title">Agent reads a customer's product holdings</span>
+        <button class="btn btn-primary uc-run" onclick="runUseCase(1)">▶ Run live</button>
+        <span class="uc-sub">Read path — Agent → Action Broker (token) → ACG → Context Cache → canonical context packet</span>
+      </div>
+      <div class="uc-body">
+        <div class="step"><span class="step-n">1</span><div class="step-b"><div class="who">Agent → Action Broker</div><div class="what">Request a short-lived JWT to call the gateway</div><div class="data"><b>Produces</b> <code>POST /token {client_id:"ui-client"}</code> · <b>consumes</b> a bearer token</div></div></div>
+        <div class="step"><span class="step-n">2</span><div class="step-b"><div class="who">Agent → ACG</div><div class="what">Execute the retrieval plan for customer C001</div><div class="data"><b>Sends</b> <code>GET /context/C001</code> + bearer token</div></div></div>
+        <div class="step"><span class="step-n">3</span><div class="step-b"><div class="who">ACG → Context Cache</div><div class="what">Cache-first lookup — hot-tier hit, no on-demand assembly required</div><div class="data"><b>Consumes</b> the assembled record · tags <code>retrieval_source: hot_cache</code></div></div></div>
+        <div class="step"><span class="step-n">4</span><div class="step-b"><div class="who">ACG → Agent</div><div class="what">Returns one canonical context packet</div><div class="data"><b>Produces</b> profile + commercial_state (subscriptions) + provenance + version</div></div></div>
+        <pre class="uc-out" id="uc-out-1"></pre>
+      </div>
+    </div>
+
+    <!-- UC2 -->
+    <div class="uc">
+      <div class="uc-head">
+        <span class="uc-num">2</span><span class="uc-title">Next-best-action: compatible offers</span>
+        <button class="btn btn-primary uc-run" onclick="runUseCase(2)">▶ Run live</button>
+        <span class="uc-sub">Agent → ACG → Offer Engine → product-catalogue graph → commercially valid offers</span>
+      </div>
+      <div class="uc-body">
+        <div class="step"><span class="step-n">1</span><div class="step-b"><div class="who">Agent → ACG</div><div class="what">Ask for compatible offers for C001</div><div class="data"><b>Sends</b> <code>GET /compatible-offers/C001</code></div></div></div>
+        <div class="step"><span class="step-n">2</span><div class="step-b"><div class="who">ACG → Offer Engine → Catalogue</div><div class="what">Read held SKUs, walk the product graph, filter to compatible products</div><div class="data"><b>Consumes</b> held SKUs (e.g. <code>BB-FIBRE-1G</code>) · <b>produces</b> candidate products with prices</div></div></div>
+        <div class="step"><span class="step-n">3</span><div class="step-b"><div class="who">ACG → Agent</div><div class="what">Returns held products + compatible offers the agent can pitch</div><div class="data"><b>Produces</b> <code>compatible_products[]</code> with SKU, name, type, list price</div></div></div>
+        <pre class="uc-out" id="uc-out-2"></pre>
+      </div>
+    </div>
+
+    <!-- UC3 -->
+    <div class="uc">
+      <div class="uc-head">
+        <span class="uc-num">3</span><span class="uc-title">Governed write: purchase-agent adds a subscription</span>
+        <button class="btn btn-primary uc-run" onclick="runUseCase(3)">▶ Run live</button>
+        <span class="uc-sub">Agent → Action Broker (permission + schema check) → Billing SoR → CDC re-assembly → cache → audit</span>
+      </div>
+      <div class="uc-body">
+        <div class="step"><span class="step-n">1</span><div class="step-b"><div class="who">purchase-agent → Action Broker</div><div class="what">Submit an <code>add_subscription</code> intent for C003</div><div class="data"><b>Sends</b> <code>POST /submit-intent {intent, customer_id, payload:{sku, monthly_charge, term}}</code></div></div></div>
+        <div class="step"><span class="step-n">2</span><div class="step-b"><div class="who">Action Broker</div><div class="what">Check caller permission → validate payload → resolve write route → forward to Billing SoR</div><div class="data"><b>Produces</b> a permit decision + immutable <code>audit_id</code></div></div></div>
+        <div class="step"><span class="step-n">3</span><div class="step-b"><div class="who">Billing SoR → CDC → Cache</div><div class="what">Billing emits an event; CDC re-assembles the customer and updates both cache tiers</div><div class="data"><b>Consumes</b> the change event · <b>produces</b> an updated assembled record</div></div></div>
+        <div class="step"><span class="step-n">4</span><div class="step-b"><div class="who">Agent → ACG</div><div class="what">Re-read the context — the new subscription is now present</div><div class="data"><b>Produces</b> updated <code>commercial_state.subscriptions</code></div></div></div>
+        <pre class="uc-out" id="uc-out-3"></pre>
+      </div>
+    </div>
+
+    <!-- UC4 -->
+    <div class="uc">
+      <div class="uc-head">
+        <span class="uc-num">4</span><span class="uc-title">Governance in action: an unauthorized write is denied</span>
+        <button class="btn btn-primary uc-run" onclick="runUseCase(4)">▶ Run live</button>
+        <span class="uc-sub">read-only ui-client → Action Broker → DENIED (HTTP 403) → recorded in the audit log</span>
+      </div>
+      <div class="uc-body">
+        <div class="step"><span class="step-n">1</span><div class="step-b"><div class="who">ui-client → Action Broker</div><div class="what">Attempt an <code>add_subscription</code> intent using a read-only client</div><div class="data"><b>Sends</b> <code>POST /submit-intent</code> with a ui-client token</div></div></div>
+        <div class="step"><span class="step-n">2</span><div class="step-b"><div class="who">Action Broker</div><div class="what">Permission gate rejects the intent before any SoR is touched</div><div class="data"><b>Produces</b> <code>HTTP 403</code> + reason · the denial is still audited</div></div></div>
+        <pre class="uc-out" id="uc-out-4"></pre>
+      </div>
+    </div>
+
+    <!-- UC5 -->
+    <div class="uc">
+      <div class="uc-head">
+        <span class="uc-num">5</span><span class="uc-title">Change Data Capture: a SoR update propagates to agents</span>
+        <button class="btn btn-primary uc-run" onclick="runUseCase(5)">▶ Run live</button>
+        <span class="uc-sub">Billing SoR change → event → CDC assembly → cache refresh → next read sees fresh data</span>
+      </div>
+      <div class="uc-body">
+        <div class="step"><span class="step-n">1</span><div class="step-b"><div class="who">Agent → ACG</div><div class="what">Read C002 context BEFORE the change (baseline subscriptions)</div><div class="data"><b>Consumes</b> current <code>commercial_state.subscriptions</code></div></div></div>
+        <div class="step"><span class="step-n">2</span><div class="step-b"><div class="who">Operator → Billing SoR</div><div class="what">Suspend a subscription directly in the source system</div><div class="data"><b>Sends</b> <code>PATCH /customers/C002 {update:{product_sku, new_stat:"S"}}</code> · <b>emits</b> a change event</div></div></div>
+        <div class="step"><span class="step-n">3</span><div class="step-b"><div class="who">CDC → Cache</div><div class="what">CDC re-assembles from the event and refreshes the cache</div><div class="data"><b>Produces</b> a new assembled record with the updated status</div></div></div>
+        <div class="step"><span class="step-n">4</span><div class="step-b"><div class="who">Agent → ACG</div><div class="what">Read C002 AFTER — the suspension is reflected without the agent touching the SoR</div><div class="data"><b>Consumes</b> the fresh, governed packet</div></div></div>
+        <pre class="uc-out" id="uc-out-5"></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════ CHAT ══════════════ -->
+<section id="view-chat" class="view">
+  <div class="chat-wrap">
+    <div class="chat-head">
+      <span class="chat-title">💬 Chat with your data</span>
+      <span style="font-size:11px;color:var(--muted);flex-basis:100%;">Ask questions in plain English. Every answer is grounded in the <b>governed context from the ACG</b> — assembled from the Systems of Record, never queried raw.</span>
+      <div style="display:flex;align-items:center;gap:6px;margin-top:4px;">
+        <span class="field-label" style="margin:0;">Customer</span>
+        <div class="select-wrap"><select id="chat-customer" style="min-width:220px;"><option value="">Loading…</option></select><span class="select-caret">▾</span></div>
+      </div>
+    </div>
+    <div class="chat-msgs" id="chat-msgs"></div>
+    <div class="chat-input">
+      <input type="text" id="chat-text" placeholder="e.g. What does this customer have? · How much do they pay? · What can I upsell?" onkeydown="if(event.key==='Enter')chatSend()">
+      <button class="btn btn-primary" style="width:auto;padding:8px 18px;" onclick="chatSend()">Send</button>
+    </div>
+  </div>
+</section>
 
 <div class="toast" id="toast"></div>
 
@@ -557,14 +829,22 @@
   /* ──────────────────────────────────────────────
      Service endpoints
   ────────────────────────────────────────────── */
-  const CRM            = 'http://localhost:8010';
-  const CDC            = 'http://localhost:8011';
-  const CACHE          = 'http://localhost:8012';
-  const ACG            = 'http://localhost:8013';
-  const CATALOGUE      = 'http://localhost:8014';
-  const LOG            = 'http://localhost:8015';
-  const BILLING        = 'http://localhost:8017';
-  const ACTION_BROKER  = 'http://localhost:8018';
+  // Endpoints are derived from the page's own host so the UI works both
+  // locally (served by ACG on :8013) and via the AWS ALB (served on :80,
+  // with each service exposed on its native port). ACG is same-origin as
+  // the page. Ports not exposed via the ALB (CDC/Cache/Log) degrade
+  // gracefully — their optional panels simply stay empty.
+  const _host   = location.hostname;
+  const _scheme = location.protocol;
+  const _svc    = (port) => `${_scheme}//${_host}:${port}`;
+  const ACG            = location.origin;   // :8013 locally, :80 via ALB
+  const CRM            = _svc(8010);
+  const CDC            = _svc(8011);
+  const CACHE          = _svc(8012);
+  const CATALOGUE      = _svc(8014);
+  const LOG            = _svc(8015);
+  const BILLING        = _svc(8017);
+  const ACTION_BROKER  = _svc(8018);
 
   /* ──────────────────────────────────────────────
      State
@@ -574,7 +854,7 @@
   let billingRecord   = null;
   let rawCrmOpen      = false;
   let rawBillingOpen  = false;
-  let panelOpen       = { pending: false, log: false, prov: false };
+  let panelOpen       = { pending: false, log: false, prov: false, scn: true };
   let refreshTimer    = null;
   let _authToken      = null;   // JWT Bearer token for ACG calls
 
@@ -605,9 +885,105 @@
      Init
   ────────────────────────────────────────────── */
   async function init() {
+    wireDocsLinks();
     await _acquireToken();
     await populateCustomers();
     await refreshPending();
+  }
+
+  /* ──────────────────────────────────────────────
+     Docs + Test Scenarios
+  ────────────────────────────────────────────── */
+  function openDocs() { window.open(ACG + '/docs', '_blank'); }
+
+  // Rewrite the top-nav service-pill /docs links to the current host so they
+  // resolve both locally and through the ALB.
+  function wireDocsLinks() {
+    document.querySelectorAll('.svc-pill[href]').forEach(a => {
+      const m = (a.getAttribute('href') || '').match(/:(\d+)\/docs/);
+      if (m) a.href = `${_svc(m[1])}/docs`;
+    });
+  }
+
+  async function getToken(clientId) {
+    const res = await fetch(`${ACTION_BROKER}/token`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ client_id: clientId }),
+    });
+    if (!res.ok) throw new Error(`token(${clientId}) HTTP ${res.status}`);
+    return (await res.json()).access_token;
+  }
+
+  function scenarioOut(title, status, obj) {
+    document.getElementById('scn-status').textContent = status;
+    panelOpen.scn = true;
+    document.getElementById('scn-body').classList.add('open');
+    document.getElementById('scn-tog').textContent = '▼';
+    const body = typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2);
+    document.getElementById('scn-out').textContent = `▶ ${title}\n\n${body}`;
+  }
+
+  async function brokerIntent(clientId, intent, customerId, payload) {
+    const tok = await getToken(clientId);
+    const res = await fetch(`${ACTION_BROKER}/submit-intent`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${tok}` },
+      body:    JSON.stringify({ intent, customer_id: customerId, payload }),
+    });
+    const data = await res.json().catch(() => ({}));
+    return { status: res.status, ok: res.ok, data };
+  }
+
+  async function runScenario(name) {
+    const cid = document.getElementById('customer-select').value || 'C001';
+    try {
+      if (name === 'healthy') {
+        scenarioOut('① Assembling context for C001 via ACG…', 'running', 'Please wait…');
+        const t   = await getToken('ui-client');
+        const res = await fetch(`${ACG}/context/C001`, { headers: { 'Authorization': `Bearer ${t}` } });
+        const data = await res.json();
+        document.getElementById('customer-select').value = 'C001';
+        currentId = 'C001';
+        await loadHoldings();
+        scenarioOut('① Healthy read — GET /context/C001', `HTTP ${res.status}`, data);
+      } else if (name === 'offers') {
+        const t   = await getToken('ui-client');
+        const res = await fetch(`${ACG}/compatible-offers/${cid}`, { headers: { 'Authorization': `Bearer ${t}` } });
+        const data = await res.json();
+        scenarioOut(`② Compatible offers — GET /compatible-offers/${cid}`, `HTTP ${res.status}`, data);
+        toast(res.ok ? `${cid}: ${(data.compatible_products || []).length} compatible products` : 'Offers failed', res.ok ? 'ok' : 'err');
+      } else if (name === 'cache') {
+        const t   = await getToken('ui-client');
+        const res = await fetch(`${ACG}/cache-status`, { headers: { 'Authorization': `Bearer ${t}` } });
+        const data = await res.json();
+        scenarioOut('③ Cache status — GET /cache-status', `HTTP ${res.status}`, data);
+      } else if (name === 'govern-add') {
+        const r = await brokerIntent('purchase-agent', 'add_subscription', cid,
+          { sku: 'MOB-5G-UNLIM', monthly_charge: 35, contract_term_months: 12 });
+        scenarioOut(`④ Governed add_subscription (purchase-agent) → ${cid}`, `HTTP ${r.status}`, r.data);
+        toast(r.ok ? `Permitted · audit ${String(r.data.audit_id).slice(0, 8)}` : `Rejected (${r.status})`, r.ok ? 'ok' : 'err');
+        if (r.ok && currentId === cid) await loadHoldings();
+      } else if (name === 'govern-cancel') {
+        const r = await brokerIntent('purchase-agent', 'cancel_subscription', cid,
+          { product_sku: 'MOB-5G-UNLIM', reason_code: 'customer_request' });
+        scenarioOut(`⑤ Governed cancel_subscription (purchase-agent) → ${cid}`, `HTTP ${r.status}`, r.data);
+        toast(r.ok ? 'Cancel permitted' : `Rejected (${r.status})`, r.ok ? 'ok' : 'err');
+        if (r.ok && currentId === cid) await loadHoldings();
+      } else if (name === 'denied') {
+        const r = await brokerIntent('ui-client', 'add_subscription', cid, { sku: 'MOB-5G-UNLIM' });
+        scenarioOut('⑥ Denied write — ui-client add_subscription (expect HTTP 403)', `HTTP ${r.status}`, r.data);
+        toast(r.status === 403 ? 'Correctly DENIED by governance ✓' : `Unexpected ${r.status}`, r.status === 403 ? 'ok' : 'err');
+      } else if (name === 'audit') {
+        const t   = await getToken('ui-client');
+        const res = await fetch(`${ACTION_BROKER}/audit?limit=20`, { headers: { 'Authorization': `Bearer ${t}` } });
+        const data = await res.json();
+        scenarioOut('⑦ Action Broker audit log — GET /audit', `HTTP ${res.status}`, data);
+      }
+    } catch (e) {
+      scenarioOut(`Scenario '${name}' error`, 'error', String(e));
+      toast('Scenario failed: ' + (e.message || e), 'err');
+    }
   }
 
   async function populateCustomers() {
@@ -1108,7 +1484,240 @@
     _toastTimer = setTimeout(() => el.classList.remove('show'), 3500);
   }
 
+  /* ──────────────────────────────────────────────
+     Tabs
+  ────────────────────────────────────────────── */
+  function showTab(name) {
+    document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + name));
+    document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+  }
+
+  /* ──────────────────────────────────────────────
+     Full Demo — live end-to-end use cases
+  ────────────────────────────────────────────── */
+  function ucShow(n, clear) {
+    const el = document.getElementById('uc-out-' + n);
+    el.classList.add('show');
+    if (clear) el.textContent = '';
+    return el;
+  }
+  function ucStep(n, title, obj) {
+    const el = ucShow(n, false);
+    const body = obj == null ? '' : (typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2));
+    el.textContent += `\n━━ ${title} ━━\n${body ? body + '\n' : ''}`;
+    el.scrollTop = el.scrollHeight;
+  }
+  async function acgGet(path) {
+    const t = await getToken('ui-client');
+    const r = await fetch(`${ACG}${path}`, { headers: { 'Authorization': `Bearer ${t}` } });
+    return { status: r.status, data: await r.json() };
+  }
+
+  async function runUseCase(n) {
+    try {
+      if (n === 1) {
+        ucShow(1, true);
+        ucStep(1, '① Requesting a JWT (client_id="ui-client") from the Action Broker …');
+        const tok = await getToken('ui-client');
+        ucStep(1, '✓ Token issued (truncated)', tok.slice(0, 42) + '…');
+        ucStep(1, '② GET /context/C001 — ACG executes the retrieval plan …');
+        const r = await fetch(`${ACG}/context/C001`, { headers: { 'Authorization': `Bearer ${tok}` } });
+        const d = await r.json();
+        ucStep(1, `✓ HTTP ${r.status} — canonical context packet (retrieval_source=${d.retrieval_source})`, d);
+      } else if (n === 2) {
+        ucShow(2, true);
+        ucStep(2, '① GET /compatible-offers/C001 — ACG → Offer Engine → catalogue graph …');
+        const { status, data } = await acgGet('/compatible-offers/C001');
+        ucStep(2, `held products: ${(data.held_skus || []).join(', ') || '—'}`);
+        ucStep(2, `✓ HTTP ${status} — compatible offers (${(data.compatible_products || []).length})`, data);
+      } else if (n === 3) {
+        ucShow(3, true);
+        ucStep(3, '① purchase-agent → POST /submit-intent add_subscription for C003 …');
+        const r = await brokerIntent('purchase-agent', 'add_subscription', 'C003', { sku: 'MOB-5G-UNLIM', monthly_charge: 35, contract_term_months: 12 });
+        ucStep(3, `✓ HTTP ${r.status} — broker decision + write forwarded to Billing SoR`, r.data);
+        ucStep(3, '② Re-reading /context/C003 — CDC has re-assembled & the cache is updated …');
+        const after = await acgGet('/context/C003');
+        const subs = (after.data.commercial_state?.subscriptions || []).map(s => `${s.product_id} (${s.status})`);
+        ucStep(3, `✓ HTTP ${after.status} — C003 now holds: ${subs.join(', ') || '—'}`, after.data.commercial_state || after.data);
+        toast(r.ok ? 'Governed write permitted ✓' : `Broker responded ${r.status}`, r.ok ? 'ok' : 'err');
+      } else if (n === 4) {
+        ucShow(4, true);
+        ucStep(4, '① read-only ui-client attempts a write intent (expect HTTP 403) …');
+        const r = await brokerIntent('ui-client', 'add_subscription', 'C001', { sku: 'MOB-5G-UNLIM' });
+        ucStep(4, r.status === 403 ? '✓ HTTP 403 — correctly DENIED by the governance layer' : `HTTP ${r.status}`, r.data);
+        toast(r.status === 403 ? 'Denied by governance ✓' : `Unexpected ${r.status}`, r.status === 403 ? 'ok' : 'err');
+      } else if (n === 5) {
+        ucShow(5, true);
+        ucStep(5, '① Reading C002 context BEFORE the change …');
+        const before = await acgGet('/context/C002');
+        const subsB = (before.data.commercial_state?.subscriptions || []).map(s => `${s.product_id} (${s.status})`);
+        ucStep(5, 'current subscriptions', subsB);
+        ucStep(5, '② Billing SoR change: suspend the first subscription (emits a change event) …');
+        const bill = await (await fetch(`${BILLING}/customers/C002`)).json();
+        const sku = (bill.sub_lines || [])[0]?.sku;
+        const patch = await (await fetch(`${BILLING}/customers/C002`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ update: { product_sku: sku, new_stat: 'S' } }) })).json();
+        ucStep(5, `✓ Billing updated (${sku} → suspended) · assembly_status=${patch.assembly_status}`, patch.change_applied || patch);
+        ucStep(5, '③ Re-reading C002 AFTER — CDC propagated the change to the cache …');
+        const after = await acgGet('/context/C002');
+        const subsA = (after.data.commercial_state?.subscriptions || []).map(s => `${s.product_id} (${s.status})`);
+        ucStep(5, 'updated subscriptions (note the status change)', subsA);
+        toast('CDC propagation complete ✓', 'ok');
+      }
+    } catch (e) {
+      ucStep(n, '✗ Error', String(e && e.message ? e.message : e));
+      toast('Use case failed: ' + (e.message || e), 'err');
+    }
+  }
+
+  /* ──────────────────────────────────────────────
+     Chat with data — grounded on the ACG context
+  ────────────────────────────────────────────── */
+  window._chatCache = {};
+
+  function openChat() {
+    showTab('chat');
+    const cur = document.getElementById('customer-select')?.value;
+    const cs = document.getElementById('chat-customer');
+    if (cur && cs && [...cs.options].some(o => o.value === cur)) cs.value = cur;
+    document.getElementById('chat-text')?.focus();
+  }
+
+  async function setupChat() {
+    try {
+      const list = await apiFetch(`${CRM}/customers`);
+      const sel = document.getElementById('chat-customer');
+      sel.innerHTML = '';
+      list.forEach(c => {
+        const o = document.createElement('option');
+        o.value = c.customer_id; o.textContent = `${c.full_name} (${c.customer_id})`;
+        sel.appendChild(o);
+      });
+    } catch (_) { /* dropdown stays as-is */ }
+    chatWelcome();
+  }
+
+  function chatBubble(role, html, src) {
+    const box = document.getElementById('chat-msgs');
+    const d = document.createElement('div');
+    d.className = 'msg ' + role;
+    d.innerHTML = html + (src ? `<span class="src">${src}</span>` : '');
+    box.appendChild(d); box.scrollTop = box.scrollHeight;
+    return d;
+  }
+  function chatChips(qs) {
+    const box = document.getElementById('chat-msgs');
+    const wrap = document.createElement('div'); wrap.className = 'chips';
+    qs.forEach(q => {
+      const c = document.createElement('span'); c.className = 'chip'; c.textContent = q;
+      c.onclick = () => { document.getElementById('chat-text').value = q; chatSend(); };
+      wrap.appendChild(c);
+    });
+    box.appendChild(wrap); box.scrollTop = box.scrollHeight;
+  }
+  function chatWelcome() {
+    const box = document.getElementById('chat-msgs');
+    if (box.dataset.init) return; box.dataset.init = '1';
+    chatBubble('bot', "Hi! I'm the Business Context assistant. Pick a customer above, then ask me anything about them — I answer from the governed context the ACG assembles across CRM, Billing and the product catalogue (never the raw source systems).");
+    chatChips(['Who is this customer?', 'What products do they have?', 'How much do they pay per month?', 'What can I upsell?', 'Any suspended services?', 'Where does this data come from?']);
+  }
+
+  async function chatData(id) {
+    if (window._chatCache[id]) return window._chatCache[id];
+    const t = await getToken('ui-client');
+    const [c, o] = await Promise.all([
+      fetch(`${ACG}/context/${id}`, { headers: { 'Authorization': `Bearer ${t}` } }).then(r => r.json()),
+      fetch(`${ACG}/compatible-offers/${id}`, { headers: { 'Authorization': `Bearer ${t}` } }).then(r => r.json()).catch(() => ({})),
+    ]);
+    return (window._chatCache[id] = { ctx: c, offers: o });
+  }
+  const _subs = (ctx) => (ctx.commercial_state && ctx.commercial_state.subscriptions) || [];
+  const _money = (n) => (n == null ? '—' : '£' + Number(n).toFixed(2));
+
+  function chatAnswer(q, id, data) {
+    const ctx = data.ctx || {}, offers = data.offers || {};
+    const subs = _subs(ctx), p = ctx.profile || {}, ql = q.toLowerCase();
+    const src = `Sourced via ACG · <code>GET /context/${id}</code> (retrieval_source: ${ctx.retrieval_source || '—'}, v${ctx.version || '—'})`;
+    const oSrc = `Sourced via ACG · <code>GET /compatible-offers/${id}</code>`;
+    const has = (...w) => w.some(x => ql.includes(x));
+
+    if (has('hello', 'hi ', 'hey', 'help', 'what can you'))
+      return { t: "Ask me about this customer's profile, the products they hold, what they pay, service statuses, or what you could upsell — I only use the clean context packet from the ACG.", src: null };
+    if (has('who is', 'profile', 'name', 'email', 'phone', 'contact', 'details'))
+      return { t: `<b>${p.full_name || id}</b>\n• Customer ID: ${ctx.customer_id || id}\n• Email: ${p.email || '—'}\n• Phone: ${p.phone || '—'}`, src };
+    if (has('how much', 'cost', 'pay', 'monthly', 'bill', 'spend', 'price', 'charge')) {
+      const active = subs.filter(s => (s.status || 'active') === 'active');
+      const total = active.reduce((a, s) => a + (Number(s.monthly_charge_gbp) || 0), 0);
+      const lines = subs.map(s => `• ${s.product_name || s.product_id}: ${_money(s.monthly_charge_gbp)}/mo${(s.status && s.status !== 'active') ? ` (${s.status})` : ''}`).join('\n');
+      return { t: `Total active spend: <b>${_money(total)}/mo</b>\n${lines || 'No subscriptions.'}`, src };
+    }
+    if (has('offer', 'upsell', 'cross', 'recommend', 'next best', 'add ', 'buy', 'available', 'sell')) {
+      const cp = offers.compatible_products || [];
+      if (!cp.length) return { t: "No compatible offers are available for this customer's current holdings.", src: oSrc };
+      const held = (offers.held_skus || []).join(', ') || '—';
+      const list = cp.map(o => `• ${o.product_name} (${o.product_type}) — ${_money(o.list_price_gbp)}/mo`).join('\n');
+      return { t: `They currently hold: ${held}\nCompatible next-best offers you can pitch:\n${list}`, src: oSrc };
+    }
+    if (has('suspend', 'status', 'active', 'cancel', 'state')) {
+      if (!subs.length) return { t: 'This customer has no subscriptions on record.', src };
+      const lines = subs.map(s => `• ${s.product_name || s.product_id}: ${s.status || 'active'}`).join('\n');
+      return { t: `Service statuses:\n${lines}\n(Assembly state: ${ctx.assembly_state || 'complete'})`, src };
+    }
+    if (has('since', 'when', 'start', 'date', 'how long'))
+      return { t: subs.length ? subs.map(s => `• ${s.product_name || s.product_id}: since ${s.effective_date || '—'}`).join('\n') : 'No subscriptions to date.', src };
+    if (has('how many', 'number of', 'count'))
+      return { t: `This customer holds <b>${subs.length}</b> product${subs.length === 1 ? '' : 's'}.`, src };
+    if (has('source', 'where', 'provenance', 'fresh', 'cache', 'assembled', 'lineage', 'trust'))
+      return { t: `This packet was assembled at ${ctx.assembled_at || '—'} (v${ctx.version || '—'}), served from <code>${ctx.retrieval_source || '—'}</code>. Provenance: ${(ctx.provenance && (ctx.provenance.source_systems || []).join(', ')) || 'CRM + Billing + Catalogue'}. Agents never touch the raw Systems of Record — only this governed view.`, src };
+    if (has('have', 'hold', 'product', 'subscription', 'service', 'got', 'own')) {
+      if (!subs.length) return { t: `${p.full_name || id} has no products on record.`, src };
+      const lines = subs.map(s => `• <b>${s.product_name || s.product_id}</b> (${s.product_type || '—'}) — ${_money(s.monthly_charge_gbp)}/mo · ${s.status || 'active'}`).join('\n');
+      return { t: `${p.full_name || id} holds ${subs.length} product${subs.length === 1 ? '' : 's'}:\n${lines}`, src };
+    }
+    return { t: "I can answer from this customer's governed context. Try asking about their profile, products, monthly spend, service statuses, or upsell offers.", src: null };
+  }
+
+  async function chatSend() {
+    const input = document.getElementById('chat-text');
+    const q = (input.value || '').trim(); if (!q) return;
+    input.value = '';
+    chatBubble('user', q.replace(/</g, '&lt;'));
+    const sel = document.getElementById('chat-customer');
+    const m = q.match(/\bC0\d\d\b/i);
+    if (m && [...sel.options].some(o => o.value === m[0].toUpperCase())) sel.value = m[0].toUpperCase();
+    const id = sel.value || 'C001';
+    const typing = chatBubble('bot', 'Consulting the Business Context Layer…'); typing.classList.add('chat-typing');
+    // Try the live Bedrock-backed /chat endpoint first; fall back to the deterministic engine.
+    try {
+      const t = await getToken('ui-client');
+      const res = await fetch(`${ACG}/chat`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${t}` },
+        body:    JSON.stringify({ customer_id: id, question: q }),
+      });
+      if (res.ok) {
+        const j = await res.json();
+        const txt = String(j.answer || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        const src = `Answered by <b>Amazon Bedrock</b> (${j.model || 'LLM'}) · grounded on ACG <code>/context/${id}</code>${(j.grounded_on && j.grounded_on.compatible_count) ? ` + ${j.grounded_on.compatible_count} compatible offer(s)` : ''}`;
+        typing.remove();
+        chatBubble('bot', txt, src);
+        return;
+      }
+      // non-200 → fall through to deterministic fallback below
+    } catch (e) { /* network/LLM error → deterministic fallback */ }
+
+    try {
+      const data = await chatData(id);
+      const ans = chatAnswer(q, id, data);
+      typing.remove();
+      chatBubble('bot', ans.t, ans.src ? ans.src + ' · <span style="opacity:.7">(offline mode)</span>' : ans.src);
+    } catch (e) {
+      typing.remove();
+      chatBubble('bot', `Sorry — I couldn't reach the context gateway for ${id} (${e.message || e}).`);
+    }
+  }
+
   init();
+  setupChat();
 </script>
 </body>
 </html>
