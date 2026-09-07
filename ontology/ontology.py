@@ -26,11 +26,6 @@ _CANONICAL_CONTROL_FIELDS: frozenset[str] = frozenset({
 })
 
 # Finite set of valid assembly states — owned here so cache_app imports rather than duplicates
-VALID_ASSEMBLY_STATES: frozenset[str] = frozenset({
-    "complete", "awaiting_billing", "awaiting_crm", "partial_timed_out",
-})
-
-
 @dataclass
 class FieldMapping:
     """Describes how one SoR field maps to one canonical field."""
@@ -71,7 +66,6 @@ class EventType:
     join_key_sor: str                                # field in raw record for correlation
     join_key_canonical: str                          # canonical name of that key
     timeout_seconds: int
-    timeout_action: str                              # "write_partial" | "discard"
     field_mappings: list[FieldMapping] = field(default_factory=list)
 
 
@@ -160,7 +154,6 @@ ASSEMBLY_SPEC: dict[str, EventType] = {
         join_key_sor="cust_ref",
         join_key_canonical="customer_id",
         timeout_seconds=30,
-        timeout_action="write_partial",
         field_mappings=_CRM_MAPPINGS,
     ),
     "billing.subscription.updated": EventType(
@@ -173,10 +166,18 @@ ASSEMBLY_SPEC: dict[str, EventType] = {
         join_key_sor="cust_ref",
         join_key_canonical="customer_id",
         timeout_seconds=30,
-        timeout_action="write_partial",
         field_mappings=[],  # subscription lines handled specially in assemble_domain
     ),
 }
+
+REQUIRED_DOMAINS: frozenset[str] = frozenset(spec.domain for spec in ASSEMBLY_SPEC.values())
+
+# Derived from REQUIRED_DOMAINS so adding a new EventType to ASSEMBLY_SPEC automatically
+# registers its awaiting_<domain> state without touching this file again.
+VALID_ASSEMBLY_STATES: frozenset[str] = (
+    frozenset({"complete", "partial_timed_out"})
+    | frozenset(f"awaiting_{d}" for d in REQUIRED_DOMAINS)
+)
 
 
 # ---------------------------------------------------------------------------
@@ -429,7 +430,6 @@ def describe_spec() -> dict:
             "join_key_sor":       spec.join_key_sor,
             "join_key_canonical": spec.join_key_canonical,
             "timeout_seconds":    spec.timeout_seconds,
-            "timeout_action":     spec.timeout_action,
             "field_mappings":     field_maps,
         }
 
@@ -453,11 +453,13 @@ def describe_spec() -> dict:
     ]
 
     return {
-        "field_groups":          groups,
-        "events":                events,
-        "cache_schema":          cache_schema,
+        "field_groups":             groups,
+        "events":                   events,
+        "cache_schema":             cache_schema,
         "catalogue_field_mappings": catalogue_maps,
-        "product_event_type":    PRODUCT_EVENT_TYPE,
+        "product_event_type":       PRODUCT_EVENT_TYPE,
+        "retrieval_plans":          describe_retrieval_plans(),
+        "response_contracts":       {pid: describe_response_contract(pid) for pid in RETRIEVAL_PLANS},
     }
 
 
@@ -595,6 +597,405 @@ AGENT_PERMISSIONS: dict[str, AgentPermission] = {
         ],
     ),
 }
+
+
+# ---------------------------------------------------------------------------
+# Retrieval plan declarations — ACG read strategy, owned by the ontology
+# ---------------------------------------------------------------------------
+
+@dataclass
+class RetrievalStore:
+    """
+    One store consulted in a retrieval plan.
+
+    role="cache_tier": consulted in sequence; on a miss the ACG moves to the
+    store named by on_miss (or returns 404 if on_miss is None).
+    role="enrichment": always called after the cache tier chain resolves
+    successfully; on_miss is not used.
+
+    output_fields: JSON Schema-style dict declaring the fields this store adds
+    to the ACG response. Absent for cache_tier stores — their output is fully
+    described by FIELD_GROUPS and _CANONICAL_CONTROL_FIELDS. Required for
+    enrichment stores so the full response contract is ontology-declared.
+    """
+    name: str
+    description: str
+    role: str               # "cache_tier" | "enrichment"
+    timeout_seconds: float
+    on_miss: str | None = None          # next store to try on 404 (cache_tier only)
+    output_fields: dict | None = None   # enrichment output schema (enrichment role only)
+
+
+@dataclass
+class RetrievalPlan:
+    """
+    Declares a named ACG retrieval strategy: which stores to consult, in what
+    order, and how to handle misses and enrichment.
+
+    The ACG reads this declaration to drive execution. The pydantic-graph nodes
+    in acg_app.py implement it; this dataclass is the authoritative specification.
+    """
+    plan_id: str
+    description: str
+    task_type: str          # "customer_context" | "compatible_offers"
+    entry_store: str        # name of the first RetrievalStore to query
+    stores: dict[str, "RetrievalStore"] = field(default_factory=dict)
+
+
+RETRIEVAL_PLANS: dict[str, RetrievalPlan] = {
+    "customer-billing-context-v4": RetrievalPlan(
+        plan_id="customer-billing-context-v4",
+        description=(
+            "Two-tier cache-first retrieval of fully-assembled canonical customer context. "
+            "Reads the hot cache (Tier 2/3) first; on a miss falls back to the permanent store (Tier 1). "
+            "Known customers are always present in the permanent store — populated at startup by the SoRs "
+            "emitting events through the CDC assembly pipeline. "
+            "A permanent-store miss means the customer is genuinely unknown: the ACG logs it and returns 404. "
+            "The ACG is a pure reader — it never drives assembly or publishes events. "
+            "Partial records (assembly_state != complete) are returned transparently with missing_domains."
+        ),
+        task_type="customer_context",
+        entry_store="hot_cache",
+        stores={
+            "hot_cache": RetrievalStore(
+                name="hot_cache",
+                description="In-memory hot cache (Tier 2/3). Populated by CDC on every assembly event.",
+                role="cache_tier",
+                timeout_seconds=5.0,
+                on_miss="permanent_store",
+            ),
+            "permanent_store": RetrievalStore(
+                name="permanent_store",
+                description=(
+                    "Permanent customer index (Tier 1). Always populated for known customers. "
+                    "A miss here means the customer is genuinely unknown."
+                ),
+                role="cache_tier",
+                timeout_seconds=5.0,
+                on_miss=None,
+            ),
+        },
+    ),
+    "compatible-offers-v1": RetrievalPlan(
+        plan_id="compatible-offers-v1",
+        description=(
+            "Two-tier cache-first retrieval of compatible product offers for a customer. "
+            "Reads the assembled customer context from the hot cache (Tier 2/3), falling back to the "
+            "permanent store (Tier 1) on a miss. Passes the customer's commercial_state to the Offer "
+            "Engine, which walks the product graph from each held SKU to find structurally compatible "
+            "and upgrade-path products not yet held, then evaluates the discount policy delta for each "
+            "available contract term. Returns compatible products with per-term savings proposals."
+        ),
+        task_type="compatible_offers",
+        entry_store="hot_cache",
+        stores={
+            "hot_cache": RetrievalStore(
+                name="hot_cache",
+                description="In-memory hot cache (Tier 2/3). Populated by CDC on every assembly event.",
+                role="cache_tier",
+                timeout_seconds=5.0,
+                on_miss="permanent_store",
+            ),
+            "permanent_store": RetrievalStore(
+                name="permanent_store",
+                description=(
+                    "Permanent customer index (Tier 1). Always populated for known customers. "
+                    "A miss here means the customer is genuinely unknown."
+                ),
+                role="cache_tier",
+                timeout_seconds=5.0,
+                on_miss=None,
+            ),
+            "offer_engine": RetrievalStore(
+                name="offer_engine",
+                description=(
+                    "Offer Engine enrichment. Receives the customer's commercial_state and "
+                    "walks the product graph to find compatible products with per-term discount proposals."
+                ),
+                role="enrichment",
+                timeout_seconds=10.0,
+                on_miss=None,
+                output_fields={
+                    "held_skus": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Canonical product IDs of all active subscriptions currently held "
+                            "by the customer, sorted alphabetically."
+                        ),
+                    },
+                    "compatible_products": {
+                        "type": "array",
+                        "description": (
+                            "Products structurally compatible with the customer's current holdings "
+                            "that they do not already hold, each with per-term discount proposals. "
+                            "Empty list if no compatible products exist."
+                        ),
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "sku": {
+                                    "type": "string",
+                                    "description": "Canonical product identifier.",
+                                },
+                                "product_name": {
+                                    "type": "string",
+                                    "description": "Display name from the Product Catalogue.",
+                                },
+                                "product_type": {
+                                    "type": "string",
+                                    "description": "Product category (e.g. broadband, tv, mobile).",
+                                },
+                                "list_price_gbp": {
+                                    "type": "number",
+                                    "description": "Standard monthly list price in GBP before discounts.",
+                                },
+                                "available_terms_months": {
+                                    "type": "array",
+                                    "items": {"type": "integer"},
+                                    "description": (
+                                        "Available contract durations in months "
+                                        "(e.g. [1, 12, 24]). One proposal is returned per term."
+                                    ),
+                                },
+                                "compatible_via": {
+                                    "type": "string",
+                                    "enum": ["compatible", "upgrade"],
+                                    "description": (
+                                        "'compatible' — product can be held alongside current holdings. "
+                                        "'upgrade' — product replaces a currently held product."
+                                    ),
+                                },
+                                "proposals": {
+                                    "type": "array",
+                                    "description": "One discount proposal per available contract term.",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "contract_term_months": {
+                                                "type": "integer",
+                                                "description": "Contract duration this proposal applies to.",
+                                            },
+                                            "monthly_charge_gbp": {
+                                                "type": "number",
+                                                "description": (
+                                                    "List price for this product at this term. "
+                                                    "The actual saving is in the delta block."
+                                                ),
+                                            },
+                                            "delta": {
+                                                "type": "object",
+                                                "description": (
+                                                    "Before/after comparison of the customer's total "
+                                                    "monthly charge and discount position if this product "
+                                                    "were added at this term."
+                                                ),
+                                                "properties": {
+                                                    "monthly_charge_delta_gbp": {
+                                                        "type": "number",
+                                                        "description": (
+                                                            "Change in total monthly charge across all "
+                                                            "products. Negative = overall saving."
+                                                        ),
+                                                    },
+                                                    "saving_delta_gbp": {
+                                                        "type": "number",
+                                                        "description": (
+                                                            "Additional saving vs the customer's current "
+                                                            "discount position."
+                                                        ),
+                                                    },
+                                                    "new_policies_applied": {
+                                                        "type": "array",
+                                                        "items": {"type": "string"},
+                                                        "description": (
+                                                            "Discount policy IDs that would newly fire "
+                                                            "if this product were added."
+                                                        ),
+                                                    },
+                                                    "lost_policies": {
+                                                        "type": "array",
+                                                        "items": {"type": "string"},
+                                                        "description": (
+                                                            "Policy IDs no longer applying after this "
+                                                            "addition (e.g. displaced by a better tier)."
+                                                        ),
+                                                    },
+                                                    "net_change": {
+                                                        "type": "string",
+                                                        "enum": ["saving", "cost_increase", "neutral"],
+                                                        "description": (
+                                                            "Net direction of the total monthly charge "
+                                                            "change. 'saving' means the customer pays less "
+                                                            "overall due to discount uplift."
+                                                        ),
+                                                    },
+                                                },
+                                            },
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            ),
+        },
+    ),
+}
+
+
+# Human-readable descriptions for each field group — used in response contracts
+# and MCP tool descriptions. Keyed on FIELD_GROUPS names.
+_FIELD_GROUP_DESCRIPTIONS: dict[str, str] = {
+    "profile":          "Customer identity fields assembled from the CRM SoR.",
+    "commercial_state": "Billing subscription state assembled from the Billing SoR.",
+}
+
+# Consumer-facing descriptions for each valid assembly state.
+# Must stay in sync with VALID_ASSEMBLY_STATES — validated by tests.
+_ASSEMBLY_STATE_DESCRIPTIONS: dict[str, str] = {
+    "complete": (
+        "All domains assembled. All declared field groups are present and valid."
+    ),
+    "awaiting_billing": (
+        "CRM identity assembled; billing event not yet received. "
+        "commercial_state is absent. Check missing_domains."
+    ),
+    "awaiting_customer": (
+        "Billing subscriptions assembled; CRM event not yet received. "
+        "profile is absent. Check missing_domains."
+    ),
+    "partial_timed_out": (
+        "Assembly join timed out before all domains arrived. "
+        "Fields in present groups are valid. Check missing_domains for absent groups."
+    ),
+}
+
+# Fields the ACG adds to every response that are not part of the cached record.
+_ACG_ENVELOPE_FIELDS: dict[str, dict] = {
+    "plan_id": {
+        "type": "string",
+        "description": "Identifier of the retrieval plan that produced this response.",
+    },
+    "cache_hit": {
+        "type": "boolean",
+        "description": (
+            "True if the record was served from the hot cache (Tier 2/3); "
+            "False if retrieved from the permanent store (Tier 1)."
+        ),
+    },
+    "retrieval_source": {
+        "type": "string",
+        "enum": ["hot_cache", "permanent_store"],
+        "description": "Which cache tier the record was read from.",
+    },
+}
+
+# Descriptions for the scalar control fields present at the top level of every
+# cached record. Keyed on _CANONICAL_CONTROL_FIELDS names, plus 'version' which
+# is a cache implementation field not in the control set.
+_CONTROL_FIELD_DESCRIPTIONS: dict[str, dict] = {
+    "customer_id": {
+        "type": "string",
+        "description": "Canonical customer identifier.",
+    },
+    "assembled_at": {
+        "type": "string",
+        "description": "ISO-8601 timestamp of the most recent domain assembly across all field groups.",
+    },
+    "assembly_state": {
+        "type": "string",
+        "values": _ASSEMBLY_STATE_DESCRIPTIONS,
+        "note": (
+            "Always check assembly_state before acting on the response. "
+            "Partial records are returned transparently."
+        ),
+    },
+    "missing_domains": {
+        "type": "array",
+        "items": {"type": "string"},
+        "description": "Domain names absent from this record due to a pending join or timeout.",
+    },
+    "version": {
+        "type": "integer",
+        "description": "Monotonic version counter incremented on each cache write.",
+    },
+    "provenance": {
+        "type": "object",
+        "description": "Per-domain assembly provenance: source system, applied field mappings, event IDs.",
+    },
+}
+
+
+def describe_response_contract(plan_id: str) -> dict:
+    """
+    Return the full response contract for a retrieval plan.
+
+    Combines ACG envelope fields, cache record control fields, per-field-group
+    schemas with freshness semantics, assembly state consumer descriptions,
+    and enrichment store output fields (for plans with enrichment stores).
+
+    Cache-tier output is derived from FIELD_GROUPS. Enrichment output is taken
+    from each enrichment store's output_fields declaration.
+    """
+    plan = RETRIEVAL_PLANS[plan_id]
+    fg_keys = _field_group_allowed_keys()
+
+    field_groups = {}
+    for fg_name, fg in FIELD_GROUPS.items():
+        canonical_fields = sorted(
+            k for k in fg_keys.get(fg_name, frozenset()) if k != "_meta"
+        )
+        field_groups[fg_name] = {
+            "description":       _FIELD_GROUP_DESCRIPTIONS.get(fg_name, ""),
+            "fields":            canonical_fields,
+            "ttl_seconds":       fg.ttl_seconds,
+            "consistency_class": fg.consistency_class,
+            "meta_freshness": {
+                "field":     "_meta.freshness",
+                "confirmed": f"assembled_at is within {fg.ttl_seconds}s of now.",
+                "stale":     f"assembled_at is older than {fg.ttl_seconds}s.",
+                "unknown":   "No ttl metadata present in this record.",
+            },
+        }
+
+    enrichment_outputs = {
+        name: {"output_fields": store.output_fields}
+        for name, store in plan.stores.items()
+        if store.role == "enrichment" and store.output_fields
+    }
+
+    return {
+        "envelope_fields":   _ACG_ENVELOPE_FIELDS,
+        "control_fields":    _CONTROL_FIELD_DESCRIPTIONS,
+        "field_groups":      field_groups,
+        "assembly_states":   _ASSEMBLY_STATE_DESCRIPTIONS,
+        "enrichment_outputs": enrichment_outputs,
+    }
+
+
+def describe_retrieval_plans() -> dict:
+    """Return machine-readable retrieval plan declarations for ACG introspection."""
+    return {
+        plan_id: {
+            "plan_id":     plan.plan_id,
+            "description": plan.description,
+            "task_type":   plan.task_type,
+            "entry_store": plan.entry_store,
+            "stores": {
+                name: {
+                    "description":     store.description,
+                    "role":            store.role,
+                    "timeout_seconds": store.timeout_seconds,
+                    "on_miss":         store.on_miss,
+                    "output_fields":   store.output_fields,
+                }
+                for name, store in plan.stores.items()
+            },
+        }
+        for plan_id, plan in RETRIEVAL_PLANS.items()
+    }
 
 
 def describe_write_routes() -> dict:

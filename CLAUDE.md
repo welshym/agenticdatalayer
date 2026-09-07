@@ -245,7 +245,7 @@ ontology (CDC, Cache, ACG, Action Broker)
 
 3. **The `_merge_domain` sentinel is stripped before storing.** `cache_app.py` calls `body.pop("_merge_domain", None)` before any storage. This sentinel must never appear in a stored record or in an API response.
 
-4. **Assembly states are a closed set.** `VALID_ASSEMBLY_STATES` in `ontology.py` is the authoritative list: `complete`, `awaiting_billing`, `awaiting_crm`, `partial_timed_out`. Do not introduce new states without updating `ontology.py`, `cache_app.py`'s validation call, and the UI badge renderer in `acg/ui/index.html`.
+4. **Assembly states are a closed set derived from `ASSEMBLY_SPEC`.** `VALID_ASSEMBLY_STATES` in `ontology.py` is computed from `REQUIRED_DOMAINS` — currently `complete`, `awaiting_billing`, `awaiting_customer`, `partial_timed_out`. Adding a new `EventType` to `ASSEMBLY_SPEC` automatically registers its `awaiting_<domain>` state. The UI badge renderer in `acg/ui/index.html` must be updated manually when new domains are added.
 
 5. **Logging failures are silent.** Every log call is wrapped in `try/except`. This is not laziness — logging failure must never interrupt the assembly or retrieval path.
 

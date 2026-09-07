@@ -60,7 +60,6 @@ class PendingAssembly:
     """Tracks an in-flight multi-domain assembly waiting for all required events."""
     customer_id: str
     correlation_id: str
-    timeout_action: str                                              # "write_partial" | "discard" — resolved at creation
     domains: dict[str, dict] = field(default_factory=dict)          # domain name → partial canonical dict
     received_events: list[str] = field(default_factory=list)        # event type names received so far
     first_seen: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -158,28 +157,27 @@ async def _timeout_checker(app: FastAPI) -> None:
             if pa is None:
                 continue
 
-            if pa.timeout_action == "write_partial":
-                partial = (
-                    ontology.merge_domains(pa.domains)
-                    if len(pa.domains) > 1
-                    else next(iter(pa.domains.values()), {})
-                )
-                missing = [d for d in ("customer", "billing") if d not in pa.domains]
-                partial["assembly_state"] = "partial_timed_out"
-                partial["missing_domains"] = missing
+            partial = (
+                ontology.merge_domains(pa.domains)
+                if len(pa.domains) > 1
+                else next(iter(pa.domains.values()), {})
+            )
+            missing = [d for d in ontology.REQUIRED_DOMAINS if d not in pa.domains]
+            partial["assembly_state"] = "partial_timed_out"
+            partial["missing_domains"] = missing
 
-                try:
-                    await app.state.cache_http.put(f"/records/{cid}", json=partial)
-                except Exception:
-                    pass
+            try:
+                await app.state.cache_http.put(f"/records/{cid}", json=partial)
+            except Exception:
+                pass
 
-                await _log(
-                    app.state.log_http, "cdc-assembly", "timeout_triggered",
-                    f"Assembly timed out for {cid} — only domains {list(pa.domains.keys())} received; writing partial",
-                    customer_id=cid, correlation_id=pa.correlation_id,
-                    outcome="timeout",
-                    details={"received_domains": list(pa.domains.keys()), "missing_domains": missing},
-                )
+            await _log(
+                app.state.log_http, "cdc-assembly", "timeout_triggered",
+                f"Assembly timed out for {cid} — only domains {list(pa.domains.keys())} received; writing partial",
+                customer_id=cid, correlation_id=pa.correlation_id,
+                outcome="timeout",
+                details={"received_domains": list(pa.domains.keys()), "missing_domains": missing},
+            )
 
             log_entry = {
                 "event_id": pa.correlation_id,
@@ -429,7 +427,7 @@ async def process_event(
         has_customer = "profile"          in existing or spec.domain == "customer"
         has_billing  = "commercial_state" in existing or spec.domain == "billing"
         new_state = "complete" if (has_customer and has_billing) else (
-            "awaiting_billing" if has_customer else "awaiting_crm"
+            "awaiting_billing" if has_customer else "awaiting_customer"
         )
 
         # Reuse correlation_id if the existing record carries one
@@ -480,7 +478,7 @@ async def process_event(
         if pa is not None:
             pa.domains[spec.domain] = domain_partial
             pa.received_events.append(event.event_type)
-            required = {"customer", "billing"}
+            required = ontology.REQUIRED_DOMAINS
             correlation_id = pa.correlation_id
 
             if required <= set(pa.domains.keys()):
@@ -505,13 +503,6 @@ async def process_event(
                 if et in ontology.ASSEMBLY_SPEC
             ]
             max_timeout = max(s.timeout_seconds for s in join_specs)
-            # Most permissive: write_partial wins over discard so a partial record
-            # is always written if any event type in the join declares it.
-            resolved_timeout_action = (
-                "write_partial"
-                if any(s.timeout_action == "write_partial" for s in join_specs)
-                else "discard"
-            )
             timeout_at = datetime.fromtimestamp(
                 datetime.now(timezone.utc).timestamp() + max_timeout,
                 tz=timezone.utc,
@@ -519,14 +510,13 @@ async def process_event(
             pa = PendingAssembly(
                 customer_id=customer_id,
                 correlation_id=correlation_id,
-                timeout_action=resolved_timeout_action,
                 domains={spec.domain: domain_partial},
                 received_events=[event.event_type],
                 first_seen=datetime.now(timezone.utc),
                 timeout_at=timeout_at,
             )
             _pending[customer_id] = pa
-            missing = [d for d in ("customer", "billing") if d != spec.domain]
+            missing = [d for d in ontology.REQUIRED_DOMAINS if d != spec.domain]
 
     if do_write:
         put_resp = await cache_http.put(f"/records/{customer_id}", json=merged)
@@ -537,7 +527,7 @@ async def process_event(
             log_http, "cdc-assembly", "join_completed",
             f"All domains received for {customer_id} — assembled complete canonical record",
             customer_id=customer_id, event_id=event_id, correlation_id=correlation_id,
-            details={"domains": ["customer", "billing"], "version": stored["version"]},
+            details={"domains": list(pa.domains.keys()), "version": stored["version"]},
         )
 
         async with _log_lock:
@@ -556,7 +546,8 @@ async def process_event(
         }
 
     # Pending — not yet complete
-    assembly_state = f"awaiting_{'billing' if spec.domain == 'customer' else 'crm'}"
+    # Derive awaiting state from whichever single domain is still missing.
+    assembly_state = f"awaiting_{missing[0]}" if len(missing) == 1 else "partial_timed_out"
 
     await _log(
         log_http, "cdc-assembly", "join_pending",

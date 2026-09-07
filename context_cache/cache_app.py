@@ -19,7 +19,7 @@ The ACG reads _store first; on a miss it reads _permanent before
 falling back to triggering on-demand assembly from the SoRs.
 
 Cache records carry an `assembly_state` field:
-  complete | awaiting_product | awaiting_crm | partial_timed_out
+  complete | awaiting_billing | awaiting_customer | partial_timed_out
 
 Merge upsert: if PUT body contains `_merge_domain`, only the keys
 present in the body are updated; existing keys not in the body are

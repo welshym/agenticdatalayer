@@ -16,7 +16,7 @@ Routes:
   GET  /retrieval-plan/mermaid   — Mermaid flowchart of the retrieval graph
   GET  /ontology                 — Introspect declared assembly spec
   GET  /cache-status             — Current cache population
-  GET  /mcp/sse                  — MCP SSE connection endpoint (clients connect here)
+  GET  /mcp/sse                  — MCP SSE connection endpoint (Bearer JWT required; sub claim bound as caller identity)
   POST /mcp/messages/            — MCP message posting endpoint
 """
 from __future__ import annotations
@@ -25,6 +25,7 @@ import json
 import types as builtin_types
 import typing
 from contextlib import asynccontextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from pathlib import Path
 from datetime import datetime, timezone
@@ -34,7 +35,7 @@ import httpx
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Request, Security
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import FileResponse, PlainTextResponse, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from mcp.server import Server as McpServer
 from mcp.server.sse import SseServerTransport
@@ -44,32 +45,23 @@ from pydantic_graph import BaseNode, End, Graph, GraphRunContext
 import auth
 import ontology
 
-CACHE_URL = "http://localhost:8012"
-LOG_URL   = "http://localhost:8015"
-OFFER_URL = "http://localhost:8016"
+CACHE_URL          = "http://localhost:8012"
+LOG_URL            = "http://localhost:8015"
+OFFER_URL          = "http://localhost:8016"
+ACTION_BROKER_URL  = "http://localhost:8018"
 
 UI_PATH = Path(__file__).parent / "ui" / "index.html"
 
-PLAN_ID = "customer-billing-context-v4"
-PLAN_DESCRIPTION = (
-    "Two-tier cache-first retrieval of fully-assembled canonical customer context. "
-    "Reads the hot cache (Tier 2/3) first; on a miss falls back to the permanent store (Tier 1). "
-    "Known customers are always present in the permanent store — populated at startup by the SoRs "
-    "emitting events through the CDC assembly pipeline. "
-    "A permanent-store miss means the customer is genuinely unknown: the ACG logs it and returns 404. "
-    "The ACG is a pure reader — it never drives assembly or publishes events. "
-    "Partial records (assembly_state != complete) are returned transparently with missing_domains."
-)
+# Plan identities and descriptions are declared in ontology.RETRIEVAL_PLANS —
+# the ACG reads them rather than maintaining its own copy.
+_CONTEXT_PLAN = ontology.RETRIEVAL_PLANS["customer-billing-context-v4"]
+_OFFERS_PLAN   = ontology.RETRIEVAL_PLANS["compatible-offers-v1"]
 
-COMPATIBLE_OFFERS_PLAN_ID = "compatible-offers-v1"
-COMPATIBLE_OFFERS_PLAN_DESCRIPTION = (
-    "Two-tier cache-first retrieval of compatible product offers for a customer. "
-    "Reads the assembled customer context from the hot cache (Tier 2/3), falling back to the "
-    "permanent store (Tier 1) on a miss. Passes the customer's commercial_state to the Offer "
-    "Engine, which walks the product graph from each held SKU to find structurally compatible "
-    "and upgrade-path products not yet held, then evaluates the discount policy delta for each "
-    "available contract term. Returns compatible products with per-term savings proposals."
-)
+# Caller identity bound at MCP SSE connection time — set from the verified JWT
+# sub claim in mcp_sse() before mcp.run() starts. Tool calls always execute in
+# the same asyncio task as the SSE handler, so the ContextVar is visible inside
+# _call_tool() without any per-call argument.
+_SESSION_CALLER: ContextVar[str] = ContextVar("_SESSION_CALLER", default="")
 
 
 # ---------------------------------------------------------------------------
@@ -197,7 +189,7 @@ class BuildResponse(BaseNode[RetrievalState, RetrievalDeps, dict]):
         # discount_summary is written into commercial_state by CDC at assembly time
         discount_summary = (commercial or {}).get("discount_summary", {})
         return End({
-            "plan_id":          PLAN_ID,
+            "plan_id":          _CONTEXT_PLAN.plan_id,
             "cache_hit":        ctx.state.cache_hit,
             "retrieval_source": ctx.state.retrieval_source,
             "customer_id":      record.get("customer_id"),
@@ -271,7 +263,16 @@ def _describe_plan(
 
 
 def _describe_graph() -> dict:
-    return _describe_plan(PLAN_ID, PLAN_DESCRIPTION, CacheRead.__name__, _NODE_TYPES)
+    graph_structure = _describe_plan(
+        _CONTEXT_PLAN.plan_id,
+        _CONTEXT_PLAN.description,
+        CacheRead.__name__,
+        _NODE_TYPES,
+    )
+    # Merge the ontology's store-chain declaration with the derived graph structure
+    graph_structure["task_type"] = _CONTEXT_PLAN.task_type
+    graph_structure["stores"]    = ontology.describe_retrieval_plans()[_CONTEXT_PLAN.plan_id]["stores"]
+    return graph_structure
 
 
 # ---------------------------------------------------------------------------
@@ -361,7 +362,7 @@ class BuildCompatibleOffersResponse(BaseNode[CompatibleOffersState, CompatibleOf
     ) -> End[dict]:
         record = ctx.state.cache_record
         return End({
-            "plan_id":          COMPATIBLE_OFFERS_PLAN_ID,
+            "plan_id":          _OFFERS_PLAN.plan_id,
             "cache_hit":        ctx.state.cache_hit,
             "retrieval_source": ctx.state.retrieval_source,
             "customer_id":      record.get("customer_id"),
@@ -383,12 +384,15 @@ compatible_offers_graph: Graph[CompatibleOffersState, CompatibleOffersDeps, dict
 
 
 def _describe_compatible_offers_graph() -> dict:
-    return _describe_plan(
-        COMPATIBLE_OFFERS_PLAN_ID,
-        COMPATIBLE_OFFERS_PLAN_DESCRIPTION,
+    graph_structure = _describe_plan(
+        _OFFERS_PLAN.plan_id,
+        _OFFERS_PLAN.description,
         CompatibleOffersCacheRead.__name__,
         _COMPATIBLE_OFFERS_NODE_TYPES,
     )
+    graph_structure["task_type"] = _OFFERS_PLAN.task_type
+    graph_structure["stores"]    = ontology.describe_retrieval_plans()[_OFFERS_PLAN.plan_id]["stores"]
+    return graph_structure
 
 
 # ---------------------------------------------------------------------------
@@ -433,8 +437,127 @@ def _make_compatible_offers_deps() -> CompatibleOffersDeps:
 
 
 # ---------------------------------------------------------------------------
+# Plan executor registry — keyed on task_type from ontology.RETRIEVAL_PLANS.
+# Adding a new plan requires: (1) declare it in ontology.RETRIEVAL_PLANS,
+# (2) implement its BaseNode subclasses, (3) register it here.
+# Route handlers and the MCP dispatcher look up executors by task_type so
+# they contain no per-plan logic themselves.
+# ---------------------------------------------------------------------------
+
+@dataclass
+class PlanExecutor:
+    """Binds an ontology-declared retrieval plan to its pydantic-graph implementation."""
+    graph: Any                              # Graph[State, Deps, dict]
+    entry_node_factory: Any                 # () -> BaseNode  (dataclass, so callable)
+    state_factory: Any                      # (customer_id: str) -> State
+    deps_factory: Any                       # () -> Deps  (reads _http at call time)
+
+
+_PLAN_REGISTRY: dict[str, PlanExecutor] = {
+    _CONTEXT_PLAN.task_type: PlanExecutor(
+        graph=customer_context_graph,
+        entry_node_factory=CacheRead,
+        state_factory=lambda cid: RetrievalState(customer_id=cid),
+        deps_factory=_make_deps,
+    ),
+    _OFFERS_PLAN.task_type: PlanExecutor(
+        graph=compatible_offers_graph,
+        entry_node_factory=CompatibleOffersCacheRead,
+        state_factory=lambda cid: CompatibleOffersState(customer_id=cid),
+        deps_factory=_make_compatible_offers_deps,
+    ),
+}
+
+# Maps each MCP tool name to the task_type it executes, so _call_tool dispatches
+# through the registry rather than branching on tool name.
+_MCP_TOOL_TASK_TYPE: dict[str, str] = {
+    "get_context":          _CONTEXT_PLAN.task_type,
+    "get_compatible_offers": _OFFERS_PLAN.task_type,
+}
+
+
+# ---------------------------------------------------------------------------
 # MCP Server — tool description and schema derived from the graph
 # ---------------------------------------------------------------------------
+
+# JSON Schema type names for the Python types used in WRITE_ROUTES payload_schema
+_PY_TO_JSON_TYPE: dict = {
+    str:         "string",
+    int:         "integer",
+    float:       "number",
+    bool:        "boolean",
+    (int, float): "number",
+}
+
+
+def _permitted_callers(intent: str) -> list[str]:
+    """Return the caller IDs allowed to submit this intent, from AGENT_PERMISSIONS."""
+    return [
+        caller_id
+        for caller_id, perm in ontology.AGENT_PERMISSIONS.items()
+        if intent in perm.allowed_intents
+    ]
+
+
+def _write_tool_schema(intent: str) -> dict:
+    """
+    Build a flat JSON Schema inputSchema for an MCP write tool from the ontology's
+    WRITE_ROUTES declaration. customer_id is added as a required field for
+    billing-sor intents; catalogue-sor intents do not require it.
+    """
+    route = ontology.WRITE_ROUTES[intent]
+    needs_customer = route.target_sor == "billing-sor"
+
+    properties: dict[str, dict] = {}
+    if needs_customer:
+        properties["customer_id"] = {
+            "type": "string",
+            "description": "Canonical customer identifier.",
+        }
+
+    for field_name, spec in route.payload_schema.get("properties", {}).items():
+        py_type = spec["type"]
+        json_type = _PY_TO_JSON_TYPE.get(py_type, "string")
+        properties[field_name] = {"type": json_type}
+
+    required = list(route.payload_schema.get("required", []))
+    if needs_customer:
+        required = ["customer_id"] + required
+
+    return {"type": "object", "properties": properties, "required": required}
+
+
+def _format_response_contract(contract: dict) -> str:
+    """
+    Convert an ontology response contract dict into a concise human-readable
+    text block suitable for appending to an MCP tool description.
+    """
+    lines: list[str] = ["\n\nResponse contract:"]
+
+    lines.append("\nField groups (from cache):")
+    for fg_name, fg in contract["field_groups"].items():
+        fm = fg["meta_freshness"]
+        lines.append(
+            f'  • {fg_name} — {fg["description"]} '
+            f'TTL {fg["ttl_seconds"]}s, {fg["consistency_class"]} consistency.\n'
+            f'    Fields: {", ".join(fg["fields"])}\n'
+            f'    {fm["field"]}: "confirmed" ({fm["confirmed"]}) | '
+            f'"stale" ({fm["stale"]}) | "unknown" ({fm["unknown"]})'
+        )
+
+    lines.append("\nassembly_state values:")
+    for state, desc in contract["assembly_states"].items():
+        lines.append(f'  • "{state}" — {desc}')
+    lines.append(contract["control_fields"]["assembly_state"]["note"])
+
+    if contract["enrichment_outputs"]:
+        lines.append("\nEnrichment outputs:")
+        for store_name, enrichment in contract["enrichment_outputs"].items():
+            for field_name, field_schema in enrichment["output_fields"].items():
+                lines.append(f'  • {field_name} — {field_schema["description"]}')
+
+    return "\n".join(lines)
+
 
 mcp = McpServer("agent-context-gateway")
 _sse_transport = SseServerTransport("/mcp/messages/")
@@ -449,32 +572,69 @@ async def _list_tools() -> list[Tool]:
         },
         "required": ["customer_id"],
     }
-    return [
-        Tool(name="get_context",           description=PLAN_DESCRIPTION,                   inputSchema=_customer_id_schema),
-        Tool(name="get_compatible_offers",  description=COMPATIBLE_OFFERS_PLAN_DESCRIPTION, inputSchema=_customer_id_schema),
+    context_contract = ontology.describe_response_contract(_CONTEXT_PLAN.plan_id)
+    offers_contract  = ontology.describe_response_contract(_OFFERS_PLAN.plan_id)
+
+    read_tools = [
+        Tool(
+            name="get_context",
+            description=_CONTEXT_PLAN.description + _format_response_contract(context_contract),
+            inputSchema=_customer_id_schema,
+        ),
+        Tool(
+            name="get_compatible_offers",
+            description=_OFFERS_PLAN.description + _format_response_contract(offers_contract),
+            inputSchema=_customer_id_schema,
+        ),
     ]
+
+    # One write tool per declared write route. Caller identity comes from the
+    # verified JWT bound at SSE connection time — not from tool arguments.
+    write_tools = [
+        Tool(
+            name=intent,
+            description=(
+                f"{route.description}\n\n"
+                f"Permitted callers: {', '.join(_permitted_callers(intent))}.\n"
+                f"Target SoR: {route.target_sor}."
+            ),
+            inputSchema=_write_tool_schema(intent),
+        )
+        for intent, route in ontology.WRITE_ROUTES.items()
+    ]
+
+    return read_tools + write_tools
 
 
 @mcp.call_tool()
 async def _call_tool(name: str, arguments: dict) -> list[TextContent]:
-    customer_id = arguments["customer_id"]
-    if name == "get_context":
-        run_result = await customer_context_graph.run(
-            CacheRead(),
-            state=RetrievalState(customer_id=customer_id),
-            deps=_make_deps(),
+    # Write intent — forward to Action Broker using the session-bound caller identity
+    if name in ontology.WRITE_ROUTES:
+        caller_id = _SESSION_CALLER.get()
+        if not caller_id:
+            raise ValueError("No caller identity bound to this session — JWT required at SSE connect")
+        token = auth.mint_token(caller_id)
+        customer_id = arguments.get("customer_id")
+        payload = {k: v for k, v in arguments.items() if k != "customer_id"}
+        resp = await _http["action_broker_http"].post(
+            "/submit-intent",
+            json={"intent": name, "customer_id": customer_id, "payload": payload},
+            headers={"Authorization": f"Bearer {token}"},
         )
-        result = run_result.output
-    elif name == "get_compatible_offers":
-        run_result = await compatible_offers_graph.run(
-            CompatibleOffersCacheRead(),
-            state=CompatibleOffersState(customer_id=customer_id),
-            deps=_make_compatible_offers_deps(),
-        )
-        result = run_result.output
-    else:
+        resp.raise_for_status()
+        return [TextContent(type="text", text=json.dumps(resp.json()))]
+
+    # Read intent — dispatch through the plan registry
+    task_type = _MCP_TOOL_TASK_TYPE.get(name)
+    if task_type is None:
         raise ValueError(f"Unknown tool: {name}")
-    return [TextContent(type="text", text=json.dumps(result))]
+    executor = _PLAN_REGISTRY[task_type]
+    run_result = await executor.graph.run(
+        executor.entry_node_factory(),
+        state=executor.state_factory(arguments["customer_id"]),
+        deps=executor.deps_factory(),
+    )
+    return [TextContent(type="text", text=json.dumps(run_result.output))]
 
 
 # ---------------------------------------------------------------------------
@@ -483,9 +643,10 @@ async def _call_tool(name: str, arguments: dict) -> list[TextContent]:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    _http["cache_http"] = httpx.AsyncClient(base_url=CACHE_URL, timeout=10.0)
-    _http["log_http"]   = httpx.AsyncClient(base_url=LOG_URL,   timeout=3.0)
-    _http["offer_http"] = httpx.AsyncClient(base_url=OFFER_URL, timeout=10.0)
+    _http["cache_http"]          = httpx.AsyncClient(base_url=CACHE_URL,         timeout=10.0)
+    _http["log_http"]            = httpx.AsyncClient(base_url=LOG_URL,           timeout=3.0)
+    _http["offer_http"]          = httpx.AsyncClient(base_url=OFFER_URL,         timeout=10.0)
+    _http["action_broker_http"]  = httpx.AsyncClient(base_url=ACTION_BROKER_URL, timeout=15.0)
     yield
     for client in _http.values():
         await client.aclose()
@@ -536,10 +697,11 @@ async def get_context(customer_id: str, _token: dict = Depends(_require_jwt)) ->
     Executes the customer context retrieval graph.
     Partial records (assembly_state != complete) are returned transparently.
     """
-    run_result = await customer_context_graph.run(
-        CacheRead(),
-        state=RetrievalState(customer_id=customer_id),
-        deps=_make_deps(),
+    executor = _PLAN_REGISTRY[_CONTEXT_PLAN.task_type]
+    run_result = await executor.graph.run(
+        executor.entry_node_factory(),
+        state=executor.state_factory(customer_id),
+        deps=executor.deps_factory(),
     )
     result = run_result.output
 
@@ -576,10 +738,11 @@ async def get_compatible_offers(customer_id: str, _token: dict = Depends(_requir
     context from the cache, then delegates to the Offer Engine to walk the product
     graph and evaluate per-term discount proposals for each compatible product.
     """
-    run_result = await compatible_offers_graph.run(
-        CompatibleOffersCacheRead(),
-        state=CompatibleOffersState(customer_id=customer_id),
-        deps=_make_compatible_offers_deps(),
+    executor = _PLAN_REGISTRY[_OFFERS_PLAN.task_type]
+    run_result = await executor.graph.run(
+        executor.entry_node_factory(),
+        state=executor.state_factory(customer_id),
+        deps=executor.deps_factory(),
     )
     return run_result.output
 
@@ -598,7 +761,25 @@ async def cache_status(_token: dict = Depends(_require_jwt)) -> dict:
 
 @app.get("/mcp/sse", include_in_schema=False)
 async def mcp_sse(request: Request) -> None:
-    """MCP SSE connection endpoint — agent runtimes connect here."""
+    """
+    MCP SSE connection endpoint — agent runtimes connect here.
+
+    Requires a Bearer JWT in the Authorization header. The verified sub claim
+    is bound to this connection as the caller identity for all tool calls made
+    on it. Write tools (add_subscription, cancel_subscription, etc.) use this
+    identity to acquire an Action Broker token; no caller_id argument is needed
+    in tool inputs.
+    """
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return Response(status_code=401, content="Bearer token required for MCP SSE connection")
+    try:
+        decoded = auth.verify_token(auth_header[len("Bearer "):])
+    except Exception as exc:
+        return Response(status_code=401, content=f"Invalid token: {exc}")
+
+    _SESSION_CALLER.set(decoded["sub"])
+
     async with _sse_transport.connect_sse(
         request.scope, request.receive, request._send
     ) as streams:

@@ -70,6 +70,9 @@ The demo is scoped to one CX slice — **customer product holdings** — and sho
 │  │                                          │                    │         │
 │  │  • FieldMapping & FieldGroup declarations│                    │         │
 │  │  • ASSEMBLY_SPEC (event → domain rules)  │                    │         │
+│  │  • REQUIRED_DOMAINS (derived)            │                    │         │
+│  │  • VALID_ASSEMBLY_STATES (derived)       │                    │         │
+│  │  • RETRIEVAL_PLANS (per-task-type)       │                    │         │
 │  │  • WRITE_ROUTES + AGENT_PERMISSIONS      │                    │         │
 │  │  • validate_cache_record()               │                    │         │
 │  └──────────────────────────────────────────┘                    │         │
@@ -328,7 +331,35 @@ sequenceDiagram
     ACG-->>Agent: {customer_id, profile{...freshness}, commercial_state{...freshness}, discount_summary, ...}
 ```
 
-### Governed write — purchase agent adds a subscription
+### MCP write — agent submits a purchase intent via ACG
+
+```mermaid
+sequenceDiagram
+    participant Agent as MCP Agent Runtime
+    participant ACG as ACG MCP SSE (8013)
+    participant AB as Action Broker (8018)
+    participant BIL as Billing SoR (8017)
+
+    Agent->>ACG: GET /mcp/sse {Authorization: Bearer <JWT>}
+    ACG->>ACG: verify_token() → caller_id = purchase-agent
+    ACG->>ACG: ContextVar _SESSION_CALLER = "purchase-agent"
+    ACG-->>Agent: SSE stream established
+
+    Agent->>ACG: MCP call_tool {name: add_subscription, arguments: {customer_id, sku, term}}
+    ACG->>ACG: name in WRITE_ROUTES? → yes
+    ACG->>ACG: caller_id = _SESSION_CALLER.get() → "purchase-agent"
+    ACG->>ACG: auth.mint_token("purchase-agent") → JWT
+    ACG->>AB: POST /submit-intent {intent: add_subscription, customer_id, payload} Bearer <JWT>
+    AB->>AB: verify JWT → caller_id = purchase-agent ✓
+    AB->>AB: Permission check: add_subscription in allowed_intents? ✓
+    AB->>BIL: PATCH /customers/C001 {add: {sku, term, stat}}
+    BIL-->>AB: {updated subscription record}
+    AB->>AB: Write audit record
+    AB-->>ACG: {audit_id, outcome: permitted, ...sor_result}
+    ACG-->>Agent: TextContent {audit_id, outcome: permitted, ...}
+```
+
+### Governed write — purchase agent adds a subscription (REST direct)
 
 ```mermaid
 sequenceDiagram
@@ -422,7 +453,17 @@ The ontology is the single source of governance truth for both reads and writes.
 - `crm.customer.updated` — maps abbreviated CRM fields (`cust_ref`, `first_nm`, `last_nm`) to canonical names
 - `billing.subscription.updated` — maps per-subscription-line fields including status code decoding (`A → active`, `S → suspended`, `C → cancelled`)
 
+**Required domains (`REQUIRED_DOMAINS`)** — a `frozenset[str]` derived from `ASSEMBLY_SPEC` at import time (`frozenset(spec.domain for spec in ASSEMBLY_SPEC.values())`). Currently `{"customer", "billing"}`. CDC reads this set to determine when a cold-start join is complete — adding a new `EventType` to `ASSEMBLY_SPEC` automatically extends the required set without touching `cdc_app.py`.
+
+**Assembly states (`VALID_ASSEMBLY_STATES`)** — derived from `REQUIRED_DOMAINS`: `{"complete", "partial_timed_out"} | {f"awaiting_{d}" for d in REQUIRED_DOMAINS}`. Currently `{"complete", "awaiting_billing", "awaiting_customer", "partial_timed_out"}`. New domains register their `awaiting_<domain>` state automatically.
+
 **Field mappings (`FieldMapping`)** — each mapping declares a `sor_field`, `canonical_field`, human-readable `description`, and an optional `transform` function. The transform for `stat` decodes single-character status codes to canonical strings. All applied mappings are recorded in the `provenance` block of every cached entity.
+
+**Retrieval plans (`RETRIEVAL_PLANS`)** — a dict of `RetrievalPlan` objects declaring how the ACG should read context for each task type. Each plan names an `entry_store` and a `stores` dict of `RetrievalStore` entries, each carrying a `role` (`cache_tier` or `enrichment`), `timeout_seconds`, and an `on_miss` pointer for the cache-tier fallback chain. Two plans are currently declared:
+- `customer-billing-context-v4` — hot cache → permanent store fallback; task type `get_customer_context`
+- `compatible-offers-v1` — same cache chain, plus an `offer_engine` enrichment store with a full JSON Schema `output_fields` declaration; task type `get_compatible_offers`
+
+The ACG builds a `_PLAN_REGISTRY` from these at startup, keyed on `task_type`, so adding a new plan to the ontology is sufficient to make the ACG recognise and execute it.
 
 **Write routes (`WRITE_ROUTES`)** — maps named intents to target SoRs and payload schemas. Declared here so the Action Broker resolves them at runtime without embedding SoR knowledge:
 - `add_subscription` → billing-sor
@@ -457,7 +498,7 @@ The stateful assembly engine. Two distinct flows:
 3. Write a domain-merge upsert (`_merge_domain` sentinel) — updates only the incoming domain's field group, preserving the other domain's data
 4. If the record is now complete, run enrichment
 
-**Timeout handling:** a background `asyncio.Task` wakes every 5 seconds and checks `PendingAssembly.timeout_at`. Timed-out entries are evicted from the pending store. If `timeout_action = "write_partial"` (the current policy), a partial record is written to the cache with `assembly_state = "partial_timed_out"` and `missing_domains` populated. The ACG returns partial records transparently.
+**Timeout handling:** a background `asyncio.Task` wakes every 5 seconds and checks `PendingAssembly.timeout_at`. Timed-out entries are evicted from the pending store and a partial record is written to the cache with `assembly_state = "partial_timed_out"` and `missing_domains` populated. The ACG returns partial records transparently.
 
 **Product catalogue fan-out:** `product.catalogue.updated` events trigger a background task that reads all cache records, identifies customers holding the affected SKU, and re-enriches each one. The fan-out runs as an `asyncio.Task` so the catalogue's PATCH response is not delayed by the potentially large fan-out.
 
@@ -484,22 +525,28 @@ Both tiers are written on every successful PUT. The ACG reads `_store` first; on
 
 The single integration point for agents consuming context. It is a **pure reader** — it never writes to the cache or publishes events.
 
-**Retrieval graph:** implemented using `pydantic-graph`. The graph has three nodes:
+**Retrieval plan registry:** the ACG builds a `_PLAN_REGISTRY` at startup from `ontology.RETRIEVAL_PLANS`, keyed on `task_type`. Each registry entry holds a pydantic-graph `Graph`, an entry-node factory, and deps/state factories. When a read request arrives, the ACG looks up the matching executor and runs the graph — no plan logic lives in `acg_app.py` itself. Adding a new plan to the ontology is sufficient to register it.
+
+The customer context graph has three nodes:
 
 ```
 CacheRead → (on miss) → CacheReadPermanent → BuildResponse
 CacheRead → (on hit)  ──────────────────────► BuildResponse
 ```
 
-The graph is the single source of truth for the retrieval plan: the same object drives execution, Mermaid diagram generation (`GET /retrieval-plan/mermaid`), REST introspection (`GET /retrieval-plan`), and the MCP tool schema.
+The same graph object drives execution, Mermaid diagram generation (`GET /retrieval-plan/mermaid`), and REST introspection (`GET /retrieval-plan`).
 
 **Freshness evaluation:** `_with_freshness()` is called at read time on each field group. It compares the group's `_meta.assembled_at` against `_meta.ttl_seconds` to compute a `confirmed` or `stale` flag. This flag is injected into the response without modifying the cache record.
 
-**Compatible offers retrieval graph:** a second pydantic-graph workflow (`CompatibleOffersCacheRead → [FetchCompatibleOffers] → BuildCompatibleOffersResponse`) reads the assembled customer context and then calls the Offer Engine to walk the product graph and return per-term savings proposals for each compatible unowned product.
+**Compatible offers retrieval graph:** a second pydantic-graph workflow (`CompatibleOffersCacheRead → [FetchCompatibleOffers] → BuildCompatibleOffersResponse`) reads the assembled customer context and calls the Offer Engine to walk the product graph and return per-term savings proposals for each compatible unowned product.
 
-**MCP server:** the ACG exposes `get_context` and `get_compatible_offers` as MCP tools via SSE transport at `GET /mcp/sse`. Any MCP-compatible agent runtime can connect and call these tools without HTTP REST knowledge.
+**MCP server:** the ACG exposes MCP tools via SSE transport at `GET /mcp/sse`. Two categories of tool are registered:
+- **Read tools** — one per `RETRIEVAL_PLANS` entry (`get_context`, `get_compatible_offers`). Each tool description includes the full response contract: field groups, per-group freshness semantics, assembly state meanings, and enrichment output schemas.
+- **Write tools** — one per `WRITE_ROUTES` entry (`add_subscription`, `cancel_subscription`, `update_product_price`, `recalculate_billing`). The ACG forwards write calls to the Action Broker using a JWT minted from the connection-bound caller identity — agents submit writes through the ACG rather than calling the Action Broker directly.
 
-**JWT authentication:** all REST routes require a Bearer JWT. The ACG validates tokens using the shared `auth.py` module. The MCP transport endpoints are exempt because auth at that layer is handled at the MCP protocol level. The UI acquires its token at startup from the Action Broker's `/token` endpoint.
+**MCP authentication:** the SSE endpoint requires a Bearer JWT at connection time (`Authorization: Bearer <token>`). The ACG validates the token, binds the `caller_id` from the `sub` claim to the connection via a `ContextVar`, and uses that identity for all write tool calls on that connection. REST endpoints remain separately auth-gated.
+
+**JWT authentication:** all REST endpoints require a Bearer JWT validated using the shared `auth.py` module. The UI acquires its token at startup from the Action Broker's `/token` endpoint.
 
 ---
 
@@ -746,16 +793,10 @@ The `CLAUDE.md` file in this directory documents every known gap in detail. The 
 | **Version vector** | Plain integer version counter incremented on each write | Per-SoR ETag-based version vector; agents carry it forward for conditional writes (`If-Match` header) |
 | **Cache tiers** | Single in-memory dict with no eviction; two-tier distinction is structural only | Redis hot cache (Tier 2/3 with TTL + promotion), Cosmos DB permanent store (Tier 1), governed by a Tier Policy Engine with CEP |
 | **Multiple read surfaces** | ACG reads only the Context Cache | Full design: parallel reads from Context Cache, Vector Stores (domain-scoped semantic indexes), and Graph Stores; streamed as progressive context packets |
-| **Write path completeness** | `cancel_subscription` reason codes and `recalculate_billing` implemented; no `If-Match` conditional writes | Action Broker submits ETags as `If-Match` headers to SoRs; 412 Precondition Failed triggers conflict policy |
-| **Ontology as retrieval plan source** | Retrieval plan is hardcoded in `acg_app.py` as a pydantic-graph | Full design: retrieval plans (store weights, timeouts, relevance thresholds, per-task-type strategies) are declared in the ontology and consumed by the ACG |
-| **MCP coverage** | ACG exposes `get_context` and `get_compatible_offers`; no MCP on write path | Full design: `submitIntent` also exposed as an MCP tool; Action Broker accessible via MCP |
-| **Partial discard** | `timeout_action = "discard"` branch exists in `EventType` but is dead code | Timeout action should be derived per-join and respected by the timeout checker |
-| **Multi-SoR join** | Two-way join only (CRM + Billing); third SoR would require changes to the hardcoded `required = {"customer", "billing"}` check | Assembly spec drives arbitrary multi-SoR joins; CDC join logic is data-driven |
+| **Write path completeness** | No `If-Match` conditional writes; Action Broker writes are unconditional | Action Broker submits ETags as `If-Match` headers to SoRs; 412 Precondition Failed triggers conflict policy |
 
 ### Recommended evolution order (from CLAUDE.md)
 
-1. Field-group structure on cache documents — unlocks per-group freshness signals
-2. ETag-based version vector — unlocks conditional writes
-3. Entity resolution stub — unlocks multi-SoR correctness
-4. Write path / Action Broker conditional writes — unlocks governed mutations
-5. Retrieval plans declared in ontology — unlocks multi-source ACG
+1. ETag-based version vector — unlocks conditional writes
+2. Entity resolution stub — unlocks multi-SoR correctness
+3. Cache tier policy — unlocks TTL eviction and promotion
