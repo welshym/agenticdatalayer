@@ -20,6 +20,7 @@ Routes:
   GET   /products/{sku}/compatible      — SKUs structurally compatible with this product
   GET   /products/{sku}/upgrades        — SKUs this product can be upgraded to
   GET   /products/{sku}/incompatible    — SKUs incompatible with this product
+  GET   /products/{sku}/requires        — SKUs required as prerequisites (any one satisfies)
   POST  /validate-combination           — check a set of SKUs for structural validity
   POST  /graph/compatible-candidates    — all valid candidate additions for a held portfolio
   GET   /bundles                        — all bundle definitions
@@ -150,6 +151,12 @@ def _is_combination_valid(skus: list[str]) -> tuple[bool, list[str]]:
                 msg = f"{pair[0]} and {pair[1]} cannot be held simultaneously"
                 if msg not in violations:
                     violations.append(msg)
+        # REQUIRES: multiple edges = OR — at least one target must be in the set
+        required = _neighbours_by_relation(sku, "REQUIRES")
+        if required and not any(req in sku_set for req in required):
+            violations.append(
+                f"{sku} requires one of: {', '.join(sorted(required))}"
+            )
 
     return (len(violations) == 0, violations)
 
@@ -275,6 +282,13 @@ async def get_incompatible(sku: str) -> dict:
     return {"sku": sku, "incompatible_with": _neighbours_by_relation(sku, "INCOMPATIBLE_WITH")}
 
 
+@app.get("/products/{sku}/requires", summary="SKUs required as prerequisites (any one satisfies)")
+async def get_requires(sku: str) -> dict:
+    if sku not in CATALOGUE:
+        raise HTTPException(status_code=404, detail=f"Product {sku} not found in catalogue")
+    return {"sku": sku, "requires_one_of": _neighbours_by_relation(sku, "REQUIRES")}
+
+
 class ValidateCombinationRequest(BaseModel):
     skus: list[str]
 
@@ -311,6 +325,13 @@ async def compatible_candidates(body: CompatibleCandidatesRequest) -> dict:
                     candidate_via.setdefault(target, []).append(
                         {"source_sku": sku, "relation": relation}
                     )
+        # Products that declare a REQUIRES edge pointing to something held:
+        # the prerequisite is satisfied, so surface them as candidates.
+        for source, _, data in _get_graph().in_edges(sku, data=True):
+            if data.get("relation") == "REQUIRES" and source not in held_set:
+                candidate_via.setdefault(source, []).append(
+                    {"source_sku": sku, "relation": "REQUIRES"}
+                )
 
     candidates: list[dict] = []
     for sku, via in candidate_via.items():

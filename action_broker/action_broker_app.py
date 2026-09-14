@@ -130,6 +130,42 @@ async def _execute_write(
     if intent == "add_subscription":
         if not customer_id:
             raise HTTPException(status_code=422, detail="customer_id is required for add_subscription")
+
+        # Validate the proposed SKU against the customer's current active portfolio.
+        # Fail open on catalogue unavailability so that a catalogue outage does not
+        # block all purchases; combination_invalid is raised explicitly when the
+        # catalogue is reachable and returns a violation.
+        try:
+            customer_resp = await billing.get(f"/customers/{customer_id}")
+            if customer_resp.status_code == 200:
+                current_active_skus = [
+                    sub["sku"]
+                    for sub in customer_resp.json().get("sub_lines", [])
+                    if sub.get("stat") == "A"
+                ]
+                val_resp = await catalogue.post(
+                    "/validate-combination",
+                    json={"skus": current_active_skus + [payload["sku"]]},
+                )
+                if val_resp.status_code == 200:
+                    val = val_resp.json()
+                    if not val.get("valid", True):
+                        raise HTTPException(
+                            status_code=422,
+                            detail={
+                                "error":      "combination_invalid",
+                                "message":    (
+                                    f"Adding {payload['sku']} to {customer_id}'s portfolio "
+                                    f"violates product dependency rules"
+                                ),
+                                "violations": val.get("violations", []),
+                            },
+                        )
+        except HTTPException:
+            raise  # propagate combination_invalid as-is; don't silently swallow
+        except Exception:
+            pass   # catalogue unreachable — fail open, let the SoR enforce what it can
+
         resp = await billing.patch(
             f"/customers/{customer_id}",
             json={"add": {

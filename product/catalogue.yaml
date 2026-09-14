@@ -12,6 +12,12 @@
 #   INCOMPATIBLE_WITH — product A cannot be held simultaneously with product B
 #                       (use for non-upgrade conflicts; UPGRADES_TO already implies
 #                       mutual exclusivity within the upgrade path)
+#   REQUIRES          — product A can only be purchased if at least one of the target
+#                       SKUs is already held or being purchased simultaneously.
+#                       Multiple REQUIRES edges from the same product are OR semantics:
+#                       any one satisfied target is sufficient. Enforced by the Action
+#                       Broker's combination validation step on add_subscription and by
+#                       POST /validate-combination on the Catalogue SoR.
 
 products:
 
@@ -59,6 +65,44 @@ products:
     product_type: mobile
     list_price_gbp: 35.00
     available_terms_months: [1, 12, 24]
+
+  # ---- Hardware ----
+  - sku: HW-WIFI-BOOSTER
+    name: Wi-Fi Booster
+    product_type: hardware
+    list_price_gbp: 5.00
+    available_terms_months: [1, 12, 24]
+
+  - sku: HW-SKY-STREAM
+    name: Sky Stream Puck
+    product_type: hardware
+    list_price_gbp: 5.00
+    available_terms_months: [1, 12, 24]
+
+  - sku: HW-SKY-GLASS
+    name: Sky Glass TV
+    product_type: hardware
+    list_price_gbp: 10.00
+    available_terms_months: [1, 24]
+
+  # ---- Streaming add-ons ----
+  - sku: STRM-NETFLIX-STD
+    name: Netflix Standard (bolt-on)
+    product_type: streaming
+    list_price_gbp: 10.99
+    available_terms_months: [1, 12]
+
+  - sku: STRM-DISNEY
+    name: Disney+ (bolt-on)
+    product_type: streaming
+    list_price_gbp: 4.99
+    available_terms_months: [1, 12]
+
+  - sku: STRM-PARAMOUNT
+    name: Paramount+ (bolt-on)
+    product_type: streaming
+    list_price_gbp: 3.99
+    available_terms_months: [1, 12]
 
 
 bundles:
@@ -136,3 +180,70 @@ relationships:
   - from: BB-FTTC-100
     to: MOB-SIM-12GB
     type: COMPATIBLE_WITH
+
+  # Hardware prerequisites — each hardware add-on requires any one broadband product
+  - from: HW-WIFI-BOOSTER
+    to: BB-FTTC-100
+    type: REQUIRES
+
+  - from: HW-WIFI-BOOSTER
+    to: BB-FIBRE-500
+    type: REQUIRES
+
+  - from: HW-WIFI-BOOSTER
+    to: BB-FIBRE-1G
+    type: REQUIRES
+
+  - from: HW-SKY-STREAM
+    to: BB-FTTC-100
+    type: REQUIRES
+
+  - from: HW-SKY-STREAM
+    to: BB-FIBRE-500
+    type: REQUIRES
+
+  - from: HW-SKY-STREAM
+    to: BB-FIBRE-1G
+    type: REQUIRES
+
+  - from: HW-SKY-GLASS
+    to: BB-FTTC-100
+    type: REQUIRES
+
+  - from: HW-SKY-GLASS
+    to: BB-FIBRE-500
+    type: REQUIRES
+
+  - from: HW-SKY-GLASS
+    to: BB-FIBRE-1G
+    type: REQUIRES
+
+  # Stream → Glass is an upgrade path (IP delivery; mutually exclusive)
+  - from: HW-SKY-STREAM
+    to: HW-SKY-GLASS
+    type: UPGRADES_TO
+
+  # Streaming add-ons require any one TV package
+  - from: STRM-NETFLIX-STD
+    to: TV-SPORTS-PKG
+    type: REQUIRES
+
+  - from: STRM-NETFLIX-STD
+    to: TV-FULL-HSE
+    type: REQUIRES
+
+  - from: STRM-DISNEY
+    to: TV-SPORTS-PKG
+    type: REQUIRES
+
+  - from: STRM-DISNEY
+    to: TV-FULL-HSE
+    type: REQUIRES
+
+  - from: STRM-PARAMOUNT
+    to: TV-SPORTS-PKG
+    type: REQUIRES
+
+  - from: STRM-PARAMOUNT
+    to: TV-FULL-HSE
+    type: REQUIRES

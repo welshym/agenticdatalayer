@@ -40,6 +40,11 @@ CUSTOMER_ID = "C001"
 PRICE_SKU   = "BB-FIBRE-1G"
 NEW_PRICE   = 52.00
 
+# Seed state used by the dependency tests (verified against seed/billing.yaml):
+#   C001 — BB-FIBRE-1G (A) + TV-SPORTS-PKG (A)  → satisfies TV prerequisite
+#   C002 — MOB-5G-UNLIM (A)                      → no broadband → cannot add hardware
+#   C005 — BB-FIBRE-500 (A)                       → no TV package → cannot add streaming
+
 
 # ---------------------------------------------------------------------------
 # Pre-minted JWT headers — minted directly using the auth module so tests
@@ -318,3 +323,136 @@ class TestPricingJourney:
             f"original £{original_charge:.2f} to new list price £{NEW_PRICE:.2f} — "
             f"CDC may still be processing, or the new price equals the original"
         )
+
+
+# ---------------------------------------------------------------------------
+# Subscription dependency tests
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def restore_c001_subs():
+    """
+    Cancel any subscription lines added to C001 during the test.
+    Compares SKUs before and after to find additions; cancels them directly
+    on the Billing SoR (bypassing the Action Broker — intentional for teardown,
+    consistent with the restore_state pattern above).
+    """
+    resp = httpx.get(f"{BILLING_URL}/customers/C001", timeout=5.0)
+    original_skus = {sub["sku"] for sub in resp.json().get("sub_lines", [])}
+    yield
+    resp = httpx.get(f"{BILLING_URL}/customers/C001", timeout=5.0)
+    current_skus = {sub["sku"] for sub in resp.json().get("sub_lines", [])}
+    for sku in current_skus - original_skus:
+        httpx.patch(
+            f"{BILLING_URL}/customers/C001",
+            json={"update": {
+                "product_sku": sku,
+                "new_stat":    "C",
+                "reason_code": "customer_request",
+            }},
+            timeout=5.0,
+        )
+
+
+class TestSubscriptionDependencies:
+    """
+    Verify that the Action Broker enforces product dependency rules (REQUIRES
+    relationship from the catalogue) before forwarding add_subscription to the
+    Billing SoR.
+
+    Tests cover:
+      - A purchase that succeeds because the prerequisite is already held
+      - A purchase rejected because the required TV package is absent
+      - A purchase rejected because the required broadband product is absent
+    """
+
+    def test_01_streaming_add_succeeds_when_tv_prerequisite_held(
+        self, restore_c001_subs
+    ):
+        """
+        C001 holds TV-SPORTS-PKG. Adding STRM-NETFLIX-STD (which REQUIRES any TV
+        package) must be permitted by the Action Broker.
+        """
+        resp = httpx.post(
+            f"{ACTION_BROKER_URL}/submit-intent",
+            json={
+                "intent":      "add_subscription",
+                "customer_id": "C001",
+                "payload":     {"sku": "STRM-NETFLIX-STD", "contract_term_months": 12},
+            },
+            headers=_PURCHASE_HEADERS,
+            timeout=10.0,
+        )
+        assert resp.status_code == 200, (
+            f"Expected 200 (TV prerequisite held), got {resp.status_code}: {resp.text}"
+        )
+        result = resp.json()
+        assert result["outcome"] == "permitted"
+        assert "audit_id" in result
+
+    def test_02_streaming_add_rejected_when_no_tv_package_held(self):
+        """
+        C005 holds only BB-FIBRE-500 — no TV package. Adding STRM-NETFLIX-STD
+        must be rejected with combination_invalid because the TV prerequisite is
+        not satisfied by C005's existing portfolio or the proposed addition.
+        The violation message must name the missing TV options.
+        """
+        resp = httpx.post(
+            f"{ACTION_BROKER_URL}/submit-intent",
+            json={
+                "intent":      "add_subscription",
+                "customer_id": "C005",
+                "payload":     {"sku": "STRM-NETFLIX-STD"},
+            },
+            headers=_PURCHASE_HEADERS,
+            timeout=10.0,
+        )
+        assert resp.status_code == 422, (
+            f"Expected 422 (no TV package held), got {resp.status_code}: {resp.text}"
+        )
+        detail = resp.json()["detail"]
+        assert detail["error"] == "combination_invalid"
+
+        # Violation must name the missing prerequisite options
+        violations = detail["violations"]
+        assert violations, "Expected at least one violation string"
+        violation_text = " ".join(violations)
+        assert "STRM-NETFLIX-STD" in violation_text, (
+            "Violation should identify the product that has the unmet requirement"
+        )
+        assert "TV-SPORTS-PKG" in violation_text or "TV-FULL-HSE" in violation_text, (
+            "Violation should name at least one valid TV prerequisite"
+        )
+
+    def test_03_hardware_add_rejected_when_no_broadband_held(self):
+        """
+        C002 holds only MOB-5G-UNLIM — no broadband. Adding HW-WIFI-BOOSTER
+        (which REQUIRES any broadband product) must be rejected.
+        """
+        resp = httpx.post(
+            f"{ACTION_BROKER_URL}/submit-intent",
+            json={
+                "intent":      "add_subscription",
+                "customer_id": "C002",
+                "payload":     {"sku": "HW-WIFI-BOOSTER"},
+            },
+            headers=_PURCHASE_HEADERS,
+            timeout=10.0,
+        )
+        assert resp.status_code == 422, (
+            f"Expected 422 (no broadband held), got {resp.status_code}: {resp.text}"
+        )
+        detail = resp.json()["detail"]
+        assert detail["error"] == "combination_invalid"
+
+        violations = detail["violations"]
+        assert violations, "Expected at least one violation string"
+        violation_text = " ".join(violations)
+        assert "HW-WIFI-BOOSTER" in violation_text, (
+            "Violation should identify the product with the unmet requirement"
+        )
+        # At least one broadband SKU must appear as a suggested prerequisite
+        assert any(
+            bb in violation_text
+            for bb in ("BB-FTTC-100", "BB-FIBRE-500", "BB-FIBRE-1G")
+        ), "Violation should name at least one valid broadband prerequisite"

@@ -90,11 +90,11 @@ Discount policies (`rules/discounts.yaml`) and products (`product/catalogue.yaml
 ```bash
 # From demo/ — runs all tests that don't require services
 cd demo
-pytest tests/rules/          # unit tests — no services needed
+pytest tests/rules/ tests/catalogue/   # unit tests — no services needed
 
 # Integration tests require all services to be running first
 ./start.sh
-pytest tests/                # runs both unit and integration tests
+pytest tests/                          # runs both unit and integration tests
 ./stop.sh
 ```
 
@@ -103,7 +103,8 @@ pytest tests/                # runs both unit and integration tests
 | Category | Location | Requires services | What it covers |
 |----------|----------|-------------------|----------------|
 | Unit | `tests/rules/` | No | Discount rule evaluation, policy stacking, edge cases |
-| Integration | `tests/test_pricing_journey.py` | Yes (all) | End-to-end Action Broker flows, permission denials, audit log, CDC propagation |
+| Unit | `tests/catalogue/` | No | Product catalogue combination validation, REQUIRES prerequisite enforcement |
+| Integration | `tests/test_pricing_journey.py` | Yes (all) | End-to-end Action Broker flows, permission denials, audit log, CDC propagation, subscription dependency enforcement |
 
 **When to add tests:**
 

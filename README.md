@@ -203,8 +203,14 @@ http://localhost:8013
 | TV-FULL-HSE | Full House TV | tv | £55/mo |
 | MOB-SIM-12GB | SIM-Only 12GB | mobile | £12/mo |
 | MOB-5G-UNLIM | 5G Unlimited | mobile | £35/mo |
+| HW-WIFI-BOOSTER | Wi-Fi Booster | hardware | £5/mo |
+| HW-SKY-STREAM | Sky Stream Puck | hardware | £5/mo |
+| HW-SKY-GLASS | Sky Glass TV | hardware | £10/mo |
+| STRM-NETFLIX-STD | Netflix Standard (bolt-on) | streaming | £10.99/mo |
+| STRM-DISNEY | Disney+ (bolt-on) | streaming | £4.99/mo |
+| STRM-PARAMOUNT | Paramount+ (bolt-on) | streaming | £3.99/mo |
 
-Products have upgrade paths (`BB-FTTC-100 → BB-FIBRE-500 → BB-FIBRE-1G`) and cross-category compatibility edges (`BB-FIBRE-1G COMPATIBLE_WITH TV-FULL-HSE`). The product graph is used by the Offer Engine to identify valid upsell candidates.
+Products have upgrade paths (`BB-FTTC-100 → BB-FIBRE-500 → BB-FIBRE-1G`, `HW-SKY-STREAM → HW-SKY-GLASS`), cross-category compatibility edges (`BB-FIBRE-1G COMPATIBLE_WITH TV-FULL-HSE`), and prerequisite requirements (`HW-WIFI-BOOSTER REQUIRES any broadband`, `STRM-NETFLIX-STD REQUIRES any TV package`). The product graph is used by the Offer Engine to identify valid upsell candidates and by the Action Broker to validate proposed additions against a customer's existing portfolio.
 
 ---
 
@@ -365,6 +371,7 @@ sequenceDiagram
 sequenceDiagram
     participant Agent as Purchase Agent
     participant AB as Action Broker (8018)
+    participant CAT as Catalogue SoR (8014)
     participant BIL as Billing SoR (8017)
     participant CDC as CDC Assembly (8011)
     participant CC as Context Cache (8012)
@@ -375,6 +382,9 @@ sequenceDiagram
     AB->>AB: Permission check: add_subscription in allowed_intents? ✓
     AB->>AB: Route resolution: target_sor = billing-sor
     AB->>AB: Payload schema validation ✓
+    AB->>BIL: GET /customers/C001 → active SKUs
+    AB->>CAT: POST /validate-combination {skus: [current...] + [new_sku]}
+    CAT-->>AB: {valid: true} (REQUIRES rules satisfied)
     AB->>BIL: PATCH /customers/C001 {add: {sku, contract_term_months, stat}}
     BIL->>BIL: Evaluate discount rules (commercial_rules.evaluate_discounts)
     BIL->>CDC: POST /events {event_type: billing.subscription.updated}
@@ -560,8 +570,9 @@ All agent write intents must pass through the Action Broker. Direct SoR writes b
 2. **Permission check** — looks up the `caller_id` in `AGENT_PERMISSIONS` (declared in the ontology). Returns 403 if the caller has no registered permissions or if the intent is not in their allowed list.
 3. **Route resolution** — looks up the intent in `WRITE_ROUTES` to determine the target SoR and payload schema.
 4. **Payload schema validation** — validates required fields and types. Unknown fields are also rejected.
-5. **SoR write** — forwards the intent to the appropriate SoR endpoint.
-6. **Audit record** — appends an immutable entry to the in-memory audit deque (last 200 entries retained). Both permitted and denied intents are recorded.
+5. **Combination validation** (`add_subscription` only) — fetches the customer's current active SKUs from the Billing SoR, then calls `POST /validate-combination` on the Product Catalogue with the current portfolio plus the proposed SKU. Returns 422 `combination_invalid` if any `REQUIRES` rule is unmet (e.g. adding a streaming bolt-on when no TV package is held). Fails open if the Catalogue is unreachable.
+6. **SoR write** — forwards the intent to the appropriate SoR endpoint.
+7. **Audit record** — appends an immutable entry to the in-memory audit deque (last 200 entries retained). Both permitted and denied intents are recorded.
 
 **Token issuance (`POST /token`):** simplified `client_credentials`-style endpoint. Demo clients are registered in `auth.py`. Returns an OAuth2-compatible token response.
 
@@ -617,7 +628,7 @@ Edit `product/catalogue.yaml`. Products, bundles, and relationships are all decl
   available_terms_months: [1, 12, 24]
 ```
 
-Required fields: `sku`, `name`, `product_type`, `list_price_gbp`, `available_terms_months`. `product_type` is a free-form string used by the Offer Engine to group candidates — use an existing type (`broadband`, `tv`, `mobile`) unless you are intentionally creating a new category.
+Required fields: `sku`, `name`, `product_type`, `list_price_gbp`, `available_terms_months`. `product_type` is a free-form string used by the Offer Engine to group candidates — use an existing type (`broadband`, `tv`, `mobile`, `hardware`, `streaming`) unless you are intentionally creating a new category.
 
 **Add a relationship** — append to the `relationships:` list so the Offer Engine can walk the product graph when computing compatible offers:
 
@@ -627,7 +638,11 @@ Required fields: `sku`, `name`, `product_type`, `list_price_gbp`, `available_ter
   type: UPGRADES_TO
 ```
 
-Relationship types: `UPGRADES_TO` (mutually exclusive swap), `COMPATIBLE_WITH` (can be held simultaneously), `INCOMPATIBLE_WITH` (non-upgrade conflict).
+Relationship types:
+- `UPGRADES_TO` — mutually exclusive swap; the customer replaces A with B
+- `COMPATIBLE_WITH` — can be held simultaneously
+- `INCOMPATIBLE_WITH` — non-upgrade conflict; cannot be held together
+- `REQUIRES` — prerequisite; the product can only be added if at least one of the target SKUs is already (or simultaneously being) added. Multiple `REQUIRES` edges from one product are evaluated as OR — any one satisfies the requirement. Unmet requirements are enforced by the Action Broker at purchase time and by `POST /validate-combination` on the Catalogue SoR.
 
 **Change a list price** — edit `list_price_gbp` directly in the YAML for demo or test purposes. In the governed architecture, price changes to existing products should go through the Action Broker using the `update_product_price` intent (which triggers a CDC fan-out to re-enrich all affected customer cache records).
 

@@ -11,3 +11,4 @@ _DEMO = Path(__file__).parent.parent
 sys.path.insert(0, str(_DEMO))                  # auth
 sys.path.insert(0, str(_DEMO / "ontology"))     # ontology
 sys.path.insert(0, str(_DEMO / "rules"))        # commercial_rules
+sys.path.insert(0, str(_DEMO / "product"))      # catalogue_app
