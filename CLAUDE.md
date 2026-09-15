@@ -79,6 +79,17 @@ Discount policies (`rules/discounts.yaml`) and products (`product/catalogue.yaml
 - The rule engine (`commercial_rules.py`) is intentionally policy-agnostic — it evaluates any policy matching the declared schema. Adding a new discount requires adding a YAML entry, not changing the engine.
 - Hot-reload means rule changes can be tested against live context without restarting services.
 
+### Ontology config (assembly spec and write routes) is YAML, not hardcoded Python
+
+`ontology/assembly_spec.yaml` declares field groups, field-level mappings, and assembly rules. `ontology/write_routes.yaml` declares write intents, target SoRs, and payload schemas. These live in YAML rather than Python for the same reason as commercial rules: adding a SoR field mapping, changing a TTL, or adding a write intent does not touch a code file.
+
+`ontology.py` remains a Python module — it contains the loaders, schema validation logic, transform registry, and retrieval plan declarations (which cannot easily be expressed in YAML due to nested graph structure). The split is:
+
+- **YAML** — anything a domain engineer could change safely: field names, TTLs, consistency classes, target SoRs, payload types.
+- **Python** — anything requiring code review: transforms (e.g. `decode_status` encodes the business meaning that `A` means `active`, not just a string mapping), schema validation rules, retrieval plan graph structure.
+
+The `TRANSFORMS` dict is the explicit boundary. If a new transform is needed, it is added to `TRANSFORMS` in `ontology.py` and referenced by name from YAML. This keeps the change visible in code review without losing the config-file convenience for everything else.
+
 ---
 
 ## SDLC rules
@@ -110,7 +121,7 @@ pytest tests/                          # runs both unit and integration tests
 **When to add tests:**
 
 - Every new discount policy in `discounts.yaml` must have a corresponding test in `tests/rules/test_discounts.py`. The test must cover the positive case, the boundary case (value just below threshold), and any interaction with other policies.
-- Every new write intent in `WRITE_ROUTES` must have integration test coverage for: the permitted case (correct caller, valid payload), a permission denial (wrong caller), and a schema violation (missing required field).
+- Every new write intent in `write_routes.yaml` must have integration test coverage for: the permitted case (correct caller, valid payload), a permission denial (wrong caller), and a schema violation (missing required field).
 - Every new caller in `policies/data.json` must have `opa test` coverage in `policies/authz_test.rego` for: each allowed intent (should pass), at least one denied intent (should fail), and the `allowed_intents` return value.
 - Pure functions (e.g. `evaluate_discounts`, `validate_cache_record`, `assemble_domain`) must have unit tests that can run without any service running.
 
@@ -133,15 +144,19 @@ pytest tests/                          # runs both unit and integration tests
 
 #### The ontology is the authority for data semantics — do not duplicate it elsewhere
 
-`ontology/ontology.py` is the sole place for:
-- Field mapping declarations (`FieldMapping`, `_CRM_MAPPINGS`, `_BILLING_LINE_MAPPINGS`, `_CATALOGUE_MAPPINGS`)
-- Field group declarations (`FIELD_GROUPS`)
-- Assembly rules (`ASSEMBLY_SPEC`)
-- Valid assembly states (`VALID_ASSEMBLY_STATES`)
-- Write route declarations (`WRITE_ROUTES`)
-- Cache schema validation (`validate_cache_record`)
+The ontology module and its config files are the sole place for:
 
-Do not add field names, status codes, or domain logic to `cdc_app.py`, `acg_app.py`, or `action_broker_app.py`. If a new SoR field needs mapping, add a `FieldMapping` to the appropriate list in `ontology.py`. If a new write intent is needed, add it to `WRITE_ROUTES` (ontology) **and** update `policies/data.json` (OPA) with the callers permitted to submit it.
+| What | Where |
+|------|-------|
+| Field mapping declarations (`FieldMapping`, CRM/billing/catalogue mappings) | `ontology/assembly_spec.yaml` |
+| Field group declarations (`FIELD_GROUPS`) | `ontology/assembly_spec.yaml` |
+| Assembly rules (`ASSEMBLY_SPEC`) | `ontology/assembly_spec.yaml` |
+| Write route declarations (`WRITE_ROUTES`) | `ontology/write_routes.yaml` |
+| Transform functions (`TRANSFORMS`) | `ontology/ontology.py` |
+| Valid assembly states (`VALID_ASSEMBLY_STATES`) | `ontology/ontology.py` (derived from YAML at load time) |
+| Cache schema validation (`validate_cache_record`) | `ontology/ontology.py` |
+
+Do not add field names, status codes, or domain logic to `cdc_app.py`, `acg_app.py`, or `action_broker_app.py`. If a new SoR field needs mapping, add it to `assembly_spec.yaml`. If a new write intent is needed, add it to `write_routes.yaml` **and** update `policies/data.json` (OPA) with the callers permitted to submit it.
 
 #### OPA is the authority for write permissions
 
@@ -193,17 +208,20 @@ Every `await log_http.post(...)` call is wrapped in `try/except Exception: pass`
 |----------|---------------------|
 | `README.md` (this folder) | Service ports, file paths, example journeys, sequence diagrams, design gap table |
 | `CLAUDE.md` (this file) | Architectural decisions, SDLC rules, design divergences |
+| `ontology/assembly_spec.yaml` comments | Field group and event type semantics if new types are added |
+| `ontology/write_routes.yaml` comments | Payload field semantics and type names if new intents are added |
 | `rules/discounts.yaml` comments | Rule scope semantics if the engine gains new scope types |
 | `product/catalogue.yaml` comments | Relationship types if new types are added |
 
 **Specific sync rules:**
 
 - If a new service is added, update the service table in `README.md` and `start.sh`; add a port comment to `start.sh`.
-- If a write intent is added to `WRITE_ROUTES`, update the write route table in `README.md` and add integration test coverage.
+- If a write intent is added to `write_routes.yaml`, update the write route table in `README.md` and add integration test coverage.
 - If a new rule scope is added to `commercial_rules.py`, document it in `rules/discounts.yaml`'s comment header.
 - If a design gap is closed, remove it from the divergences section of `CLAUDE.md` and the gap table in `README.md`.
 - If a new design gap is introduced intentionally (i.e. the code diverges further from the design), add it to both documents with an explanation of why.
-- If `ASSEMBLY_SPEC` changes (new event type, new field group), update the sequence diagrams in `README.md`.
+- If `assembly_spec.yaml` changes (new event type, new field group), update the sequence diagrams in `README.md`.
+- If a new transform is added to `TRANSFORMS` in `ontology.py`, document it in `assembly_spec.yaml`'s comment header so YAML authors know it is available.
 
 ---
 
@@ -251,13 +269,13 @@ ontology (CDC, Cache, ACG, Action Broker)
 
 ## Invariants — never break these
 
-1. **`ontology.py` is the authority for data semantics.** Field mappings, assembly rules, and write routes belong there. `cdc_app.py` and `action_broker_app.py` contain no domain knowledge. Agent permissions are governed by OPA (`policies/data.json` + `policies/authz.rego`) — do not duplicate them in the ontology.
+1. **The ontology module and its YAML config files are the authority for data semantics.** Field mappings and assembly rules belong in `assembly_spec.yaml`; write routes belong in `write_routes.yaml`; transforms and schema validation belong in `ontology.py`. `cdc_app.py` and `action_broker_app.py` contain no domain knowledge. Agent permissions are governed by OPA (`policies/data.json` + `policies/authz.rego`) — do not duplicate them in the ontology.
 
 2. **Only CDC writes to the cache.** `cache_app.py` is the only service that may write to `_store` or `_permanent`. Nothing calls `PUT /records/{id}` except `cdc_app.py` and its enrichment helpers.
 
 3. **The `_merge_domain` sentinel is stripped before storing.** `cache_app.py` calls `body.pop("_merge_domain", None)` before any storage. This sentinel must never appear in a stored record or in an API response.
 
-4. **Assembly states are a closed set derived from `ASSEMBLY_SPEC`.** `VALID_ASSEMBLY_STATES` in `ontology.py` is computed from `REQUIRED_DOMAINS` — currently `complete`, `awaiting_billing`, `awaiting_customer`, `partial_timed_out`. Adding a new `EventType` to `ASSEMBLY_SPEC` automatically registers its `awaiting_<domain>` state. The UI badge renderer in `acg/ui/index.html` must be updated manually when new domains are added.
+4. **Assembly states are a closed set derived from `assembly_spec.yaml`.** `VALID_ASSEMBLY_STATES` in `ontology.py` is computed from `REQUIRED_DOMAINS` at load time — currently `complete`, `awaiting_billing`, `awaiting_customer`, `partial_timed_out`. Adding a new event type to `assembly_spec.yaml` automatically registers its `awaiting_<domain>` state without touching Python. The UI badge renderer in `acg/ui/index.html` must be updated manually when new domains are added.
 
 5. **Logging failures are silent.** Every log call is wrapped in `try/except`. This is not laziness — logging failure must never interrupt the assembly or retrieval path.
 
@@ -362,4 +380,3 @@ When evolving this demo toward the full design, prioritise in this order:
 3. **Entity resolution stub** — adds `resolve_identity()` to the ontology with a passthrough implementation. Creates the seam for gap 1 without breaking anything.
 4. **`submitIntent` on the ACG** — routes write intents through the ACG before the Action Broker, closing gap 3 and enabling MCP-based write governance.
 5. **Tier policy with TTL eviction** — adds TTL eviction to the hot cache and a simple promotion rule. Closes gap 4.
-6. **Retrieval plans declared in the ontology** — moves the ACG's hardcoded `RETRIEVAL_PLAN` into `ontology.py`, making the retrieval strategy data-driven. Enables per-task-type retrieval strategies.
