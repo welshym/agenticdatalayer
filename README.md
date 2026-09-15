@@ -454,9 +454,17 @@ sequenceDiagram
 
 ## Component details
 
-### Ontology (`ontology/ontology.py`)
+### Ontology (`ontology/ontology.py` + config files)
 
-The ontology is the single source of governance truth for both reads and writes. It declares:
+The ontology is the single source of governance truth for both reads and writes. The Python module loads its configuration from two YAML files at startup — no code change is needed to add a field mapping, change a TTL, or add a write intent. The module itself contains only the loaders, transform functions, and derived logic.
+
+| File | What it declares |
+|------|-----------------|
+| `ontology/assembly_spec.yaml` | Field groups (TTL, consistency class), field mappings, assembly spec (event → domain → join rules) |
+| `ontology/write_routes.yaml` | Write intents: target SoR, required fields, field types |
+| `ontology/ontology.py` | TRANSFORMS registry, loaders, `validate_cache_record()`, retrieval plans, schema derivation |
+
+It declares:
 
 **Field groups** — structural units of a cache document, each with its own freshness policy:
 - `profile` — customer identity fields from the CRM SoR (TTL 3600s, eventual consistency)
@@ -768,15 +776,20 @@ curl -X POST http://localhost:8016/reload
 
 ### Add or change read/write permissions
 
-Permissions span two files that must be kept in sync: `auth.py` governs who can authenticate; `ontology/ontology.py` governs what authenticated callers are permitted to write.
+Permissions span two authorities that serve different concerns:
+
+| Authority | File | Governs |
+|-----------|------|---------|
+| Authentication | `auth.py` | Who can obtain a JWT (which clients exist) |
+| Authorisation | `policies/data.json` | What authenticated callers are permitted to write |
 
 **Read access** is granted to any caller with a valid JWT — there is no per-caller read scoping on ACG endpoints. All four registered demo clients can call `GET /context/{id}` and `GET /compatible-offers/{id}` without restriction.
 
-**Write access** is governed by `AGENT_PERMISSIONS` in `ontology/ontology.py`. A caller with no entry in that dict will receive a 403 on any write intent, even with a valid JWT.
+**Write access** is evaluated by OPA on every `POST /submit-intent`. The Action Broker queries OPA with `{caller_id, intent}` and fails **closed** — if OPA is unreachable or returns `false`, the write is denied.
 
 #### Grant an existing intent to a new caller
 
-Two steps:
+Three steps:
 
 1. Register the client in `auth.py` so it can obtain a token:
 
@@ -787,50 +800,58 @@ DEMO_CLIENTS: dict[str, str] = {
 }
 ```
 
-2. Declare its write permissions in `ontology/ontology.py`:
+2. Add the caller's permissions to `policies/data.json`:
 
-```python
-AGENT_PERMISSIONS: dict[str, AgentPermission] = {
+```json
+{
+  "callers": {
     ...
-    "retention-agent": AgentPermission(
-        caller_id="retention-agent",
-        description="Customer retention agent. May cancel subscriptions only.",
-        allowed_intents=["cancel_subscription"],
-    ),
+    "retention-agent": {
+      "description": "Customer retention agent. May cancel subscriptions only.",
+      "allowed_intents": ["cancel_subscription"]
+    }
+  }
 }
 ```
 
-The `caller_id` in `AgentPermission` must exactly match the client ID registered in `DEMO_CLIENTS` — it is the value the Action Broker reads from the JWT `sub` claim.
+3. Add `opa test` coverage in `policies/authz_test.rego` for the new caller's allowed and denied intents, and its `allowed_intents` return value.
+
+No service restart is required if OPA is running in `--watch` mode — it picks up `data.json` changes automatically.
 
 #### Add a new write intent
 
-Three steps:
+Four steps:
 
-1. Declare a `WriteRoute` in `WRITE_ROUTES` in `ontology/ontology.py`:
+1. Declare the intent in `ontology/write_routes.yaml`:
 
-```python
-WRITE_ROUTES: dict[str, WriteRoute] = {
-    ...
-    "suspend_subscription": WriteRoute(
-        intent="suspend_subscription",
-        description="Temporarily suspend an active subscription in the Billing SoR.",
-        target_sor="billing-sor",
-        payload_schema={
-            "required": ["product_sku", "reason_code"],
-            "properties": {
-                "product_sku": {"type": str},
-                "reason_code": {"type": str},
-            },
-        },
-    ),
-}
+```yaml
+write_routes:
+  ...
+  suspend_subscription:
+    description: >-
+      Temporarily suspend an active subscription in the Billing SoR.
+      reason_code is required; reason_detail is optional free text.
+    target_sor: billing-sor
+    payload_schema:
+      required: [product_sku, reason_code]
+      properties:
+        product_sku:
+          type: str
+        reason_code:
+          type: str
+        reason_detail:
+          type: str
 ```
 
-2. Add the new intent to the `allowed_intents` list of any caller that should be permitted to use it.
+Allowed `type` values: `str`, `int`, `float`, `number` (accepts `int` or `float`).
+
+2. Add the intent to the `allowed_intents` list of any caller in `policies/data.json` that should be permitted to use it, and add OPA test coverage.
 
 3. Implement the corresponding SoR endpoint in `billing/billing_app.py` and wire it up in the Action Broker's routing logic in `action_broker/action_broker_app.py`.
 
-**Both registries must be updated together.** A client in `DEMO_CLIENTS` but not in `AGENT_PERMISSIONS` can authenticate but cannot write anything. A client in `AGENT_PERMISSIONS` but not in `DEMO_CLIENTS` can never obtain a token. Neither partial state is useful.
+4. Add integration test coverage for: the permitted case (correct caller, valid payload), a permission denial (wrong caller), and a schema violation (missing required field).
+
+**Authentication and authorisation must be kept in sync.** A client in `DEMO_CLIENTS` but not in `policies/data.json` can authenticate but will receive a 403 on every write. A client in `policies/data.json` but not in `DEMO_CLIENTS` can never obtain a token. Neither partial state is useful.
 
 ---
 
