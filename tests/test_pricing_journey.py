@@ -370,7 +370,7 @@ class TestSubscriptionDependencies:
         self, restore_c001_subs
     ):
         """
-        C001 holds TV-SPORTS-PKG. Adding STRM-NETFLIX-STD (which REQUIRES any TV
+        C001 holds TV-SPORTS-PKG. Adding STRM-PLAY-STD (which REQUIRES any TV
         package) must be permitted by the Action Broker.
         """
         resp = httpx.post(
@@ -378,7 +378,7 @@ class TestSubscriptionDependencies:
             json={
                 "intent":      "add_subscription",
                 "customer_id": "C001",
-                "payload":     {"sku": "STRM-NETFLIX-STD", "contract_term_months": 12},
+                "payload":     {"sku": "STRM-PLAY-STD", "contract_term_months": 12},
             },
             headers=_PURCHASE_HEADERS,
             timeout=10.0,
@@ -392,7 +392,7 @@ class TestSubscriptionDependencies:
 
     def test_02_streaming_add_rejected_when_no_tv_package_held(self):
         """
-        C005 holds only BB-FIBRE-500 — no TV package. Adding STRM-NETFLIX-STD
+        C005 holds only BB-FIBRE-500 — no TV package. Adding STRM-PLAY-STD
         must be rejected with combination_invalid because the TV prerequisite is
         not satisfied by C005's existing portfolio or the proposed addition.
         The violation message must name the missing TV options.
@@ -402,7 +402,7 @@ class TestSubscriptionDependencies:
             json={
                 "intent":      "add_subscription",
                 "customer_id": "C005",
-                "payload":     {"sku": "STRM-NETFLIX-STD"},
+                "payload":     {"sku": "STRM-PLAY-STD"},
             },
             headers=_PURCHASE_HEADERS,
             timeout=10.0,
@@ -417,7 +417,7 @@ class TestSubscriptionDependencies:
         violations = detail["violations"]
         assert violations, "Expected at least one violation string"
         violation_text = " ".join(violations)
-        assert "STRM-NETFLIX-STD" in violation_text, (
+        assert "STRM-PLAY-STD" in violation_text, (
             "Violation should identify the product that has the unmet requirement"
         )
         assert "TV-SPORTS-PKG" in violation_text or "TV-FULL-HSE" in violation_text, (

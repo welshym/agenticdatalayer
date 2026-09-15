@@ -36,22 +36,22 @@ class TestRequiresEnforcement:
         assert valid, violations
 
     def test_streaming_without_tv_is_invalid(self):
-        """STRM-NETFLIX-STD without a TV package should fail validation."""
-        valid, violations = catalogue_app._is_combination_valid(["STRM-NETFLIX-STD"])
+        """STRM-PLAY-STD without a TV package should fail validation."""
+        valid, violations = catalogue_app._is_combination_valid(["STRM-PLAY-STD"])
         assert not valid
-        assert any("STRM-NETFLIX-STD" in v for v in violations)
+        assert any("STRM-PLAY-STD" in v for v in violations)
 
     def test_streaming_with_tv_package_is_valid(self):
-        """STRM-NETFLIX-STD alongside a TV package should pass."""
+        """STRM-PLAY-STD alongside a TV package should pass."""
         valid, violations = catalogue_app._is_combination_valid(
-            ["STRM-NETFLIX-STD", "TV-SPORTS-PKG"]
+            ["STRM-PLAY-STD", "TV-SPORTS-PKG"]
         )
         assert valid, violations
 
     def test_streaming_with_full_house_tv_is_valid(self):
-        """STRM-NETFLIX-STD accepts TV-FULL-HSE as the prerequisite."""
+        """STRM-PLAY-STD accepts TV-FULL-HSE as the prerequisite."""
         valid, violations = catalogue_app._is_combination_valid(
-            ["STRM-NETFLIX-STD", "TV-FULL-HSE"]
+            ["STRM-PLAY-STD", "TV-FULL-HSE"]
         )
         assert valid, violations
 
@@ -73,7 +73,7 @@ class TestRequiresOrSemantics:
     def test_any_tv_package_satisfies_streaming_addons(self):
         """Both TV packages independently satisfy the streaming add-on requirement."""
         for tv_sku in ("TV-SPORTS-PKG", "TV-FULL-HSE"):
-            for strm_sku in ("STRM-NETFLIX-STD", "STRM-DISNEY", "STRM-PARAMOUNT"):
+            for strm_sku in ("STRM-PLAY-STD", "STRM-FAMILY", "STRM-MOVIES"):
                 valid, violations = catalogue_app._is_combination_valid([strm_sku, tv_sku])
                 assert valid, f"{tv_sku} should satisfy {strm_sku}: {violations}"
 
@@ -81,9 +81,9 @@ class TestRequiresOrSemantics:
         """Multiple streaming add-ons with one TV package should all pass together."""
         valid, violations = catalogue_app._is_combination_valid([
             "TV-FULL-HSE",
-            "STRM-NETFLIX-STD",
-            "STRM-DISNEY",
-            "STRM-PARAMOUNT",
+            "STRM-PLAY-STD",
+            "STRM-FAMILY",
+            "STRM-MOVIES",
         ])
         assert valid, violations
 
@@ -96,12 +96,12 @@ class TestRequiresViolationMessage:
 
     def test_violation_names_the_product(self):
         """The violation message identifies the product missing its prerequisite."""
-        _, violations = catalogue_app._is_combination_valid(["STRM-DISNEY"])
-        assert any("STRM-DISNEY" in v for v in violations)
+        _, violations = catalogue_app._is_combination_valid(["STRM-FAMILY"])
+        assert any("STRM-FAMILY" in v for v in violations)
 
     def test_violation_lists_options(self):
         """The violation message lists the products that would satisfy the requirement."""
-        _, violations = catalogue_app._is_combination_valid(["STRM-DISNEY"])
+        _, violations = catalogue_app._is_combination_valid(["STRM-FAMILY"])
         assert any("TV-FULL-HSE" in v or "TV-SPORTS-PKG" in v for v in violations)
 
 
@@ -109,27 +109,27 @@ class TestRequiresViolationMessage:
 # UPGRADES_TO mutual exclusivity — Stream and Glass
 # ---------------------------------------------------------------------------
 
-class TestStreamGlassMutualExclusivity:
+class TestTvHardwareMutualExclusivity:
 
-    def test_stream_and_glass_cannot_be_held_together(self):
-        """HW-SKY-STREAM and HW-SKY-GLASS are on the same upgrade path and cannot coexist."""
+    def test_tv_pod_and_smart_tv_cannot_be_held_together(self):
+        """HW-TV-POD and HW-SMART-TV are on the same upgrade path and cannot coexist."""
         valid, violations = catalogue_app._is_combination_valid([
-            "BB-FIBRE-500", "HW-SKY-STREAM", "HW-SKY-GLASS"
+            "BB-FIBRE-500", "HW-TV-POD", "HW-SMART-TV"
         ])
         assert not valid
-        assert any("HW-SKY-GLASS" in v and "HW-SKY-STREAM" in v for v in violations)
+        assert any("HW-SMART-TV" in v and "HW-TV-POD" in v for v in violations)
 
-    def test_glass_alone_with_broadband_is_valid(self):
-        """HW-SKY-GLASS with broadband but without Stream should pass."""
+    def test_smart_tv_alone_with_broadband_is_valid(self):
+        """HW-SMART-TV with broadband but without TV Pod should pass."""
         valid, violations = catalogue_app._is_combination_valid(
-            ["BB-FIBRE-1G", "HW-SKY-GLASS"]
+            ["BB-FIBRE-1G", "HW-SMART-TV"]
         )
         assert valid, violations
 
-    def test_stream_alone_with_broadband_is_valid(self):
-        """HW-SKY-STREAM with broadband but without Glass should pass."""
+    def test_tv_pod_alone_with_broadband_is_valid(self):
+        """HW-TV-POD with broadband but without Smart TV should pass."""
         valid, violations = catalogue_app._is_combination_valid(
-            ["BB-FTTC-100", "HW-SKY-STREAM"]
+            ["BB-FTTC-100", "HW-TV-POD"]
         )
         assert valid, violations
 
@@ -147,9 +147,9 @@ class TestRealisticPortfolio:
             "TV-FULL-HSE",
             "MOB-5G-UNLIM",
             "HW-WIFI-BOOSTER",
-            "HW-SKY-STREAM",
-            "STRM-NETFLIX-STD",
-            "STRM-DISNEY",
+            "HW-TV-POD",
+            "STRM-PLAY-STD",
+            "STRM-FAMILY",
         ])
         assert valid, violations
 

@@ -73,33 +73,33 @@ products:
     list_price_gbp: 5.00
     available_terms_months: [1, 12, 24]
 
-  - sku: HW-SKY-STREAM
-    name: Sky Stream Puck
+  - sku: HW-TV-POD
+    name: TV Streaming Pod
     product_type: hardware
     list_price_gbp: 5.00
     available_terms_months: [1, 12, 24]
 
-  - sku: HW-SKY-GLASS
-    name: Sky Glass TV
+  - sku: HW-SMART-TV
+    name: Smart TV Box
     product_type: hardware
     list_price_gbp: 10.00
     available_terms_months: [1, 24]
 
   # ---- Streaming add-ons ----
-  - sku: STRM-NETFLIX-STD
-    name: Netflix Standard (bolt-on)
+  - sku: STRM-PLAY-STD
+    name: Play Standard (bolt-on)
     product_type: streaming
     list_price_gbp: 10.99
     available_terms_months: [1, 12]
 
-  - sku: STRM-DISNEY
-    name: Disney+ (bolt-on)
+  - sku: STRM-FAMILY
+    name: Family Pack (bolt-on)
     product_type: streaming
     list_price_gbp: 4.99
     available_terms_months: [1, 12]
 
-  - sku: STRM-PARAMOUNT
-    name: Paramount+ (bolt-on)
+  - sku: STRM-MOVIES
+    name: Movies Pack (bolt-on)
     product_type: streaming
     list_price_gbp: 3.99
     available_terms_months: [1, 12]
@@ -194,56 +194,56 @@ relationships:
     to: BB-FIBRE-1G
     type: REQUIRES
 
-  - from: HW-SKY-STREAM
+  - from: HW-TV-POD
     to: BB-FTTC-100
     type: REQUIRES
 
-  - from: HW-SKY-STREAM
+  - from: HW-TV-POD
     to: BB-FIBRE-500
     type: REQUIRES
 
-  - from: HW-SKY-STREAM
+  - from: HW-TV-POD
     to: BB-FIBRE-1G
     type: REQUIRES
 
-  - from: HW-SKY-GLASS
+  - from: HW-SMART-TV
     to: BB-FTTC-100
     type: REQUIRES
 
-  - from: HW-SKY-GLASS
+  - from: HW-SMART-TV
     to: BB-FIBRE-500
     type: REQUIRES
 
-  - from: HW-SKY-GLASS
+  - from: HW-SMART-TV
     to: BB-FIBRE-1G
     type: REQUIRES
 
-  # Stream → Glass is an upgrade path (IP delivery; mutually exclusive)
-  - from: HW-SKY-STREAM
-    to: HW-SKY-GLASS
+  # TV Pod → Smart TV is an upgrade path (mutually exclusive)
+  - from: HW-TV-POD
+    to: HW-SMART-TV
     type: UPGRADES_TO
 
   # Streaming add-ons require any one TV package
-  - from: STRM-NETFLIX-STD
+  - from: STRM-PLAY-STD
     to: TV-SPORTS-PKG
     type: REQUIRES
 
-  - from: STRM-NETFLIX-STD
+  - from: STRM-PLAY-STD
     to: TV-FULL-HSE
     type: REQUIRES
 
-  - from: STRM-DISNEY
+  - from: STRM-FAMILY
     to: TV-SPORTS-PKG
     type: REQUIRES
 
-  - from: STRM-DISNEY
+  - from: STRM-FAMILY
     to: TV-FULL-HSE
     type: REQUIRES
 
-  - from: STRM-PARAMOUNT
+  - from: STRM-MOVIES
     to: TV-SPORTS-PKG
     type: REQUIRES
 
-  - from: STRM-PARAMOUNT
+  - from: STRM-MOVIES
     to: TV-FULL-HSE
     type: REQUIRES

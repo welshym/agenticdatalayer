@@ -205,13 +205,13 @@ http://localhost:8013
 | MOB-SIM-12GB | SIM-Only 12GB | mobile | £12/mo |
 | MOB-5G-UNLIM | 5G Unlimited | mobile | £35/mo |
 | HW-WIFI-BOOSTER | Wi-Fi Booster | hardware | £5/mo |
-| HW-SKY-STREAM | Sky Stream Puck | hardware | £5/mo |
-| HW-SKY-GLASS | Sky Glass TV | hardware | £10/mo |
-| STRM-NETFLIX-STD | Netflix Standard (bolt-on) | streaming | £10.99/mo |
-| STRM-DISNEY | Disney+ (bolt-on) | streaming | £4.99/mo |
-| STRM-PARAMOUNT | Paramount+ (bolt-on) | streaming | £3.99/mo |
+| HW-TV-POD | TV Streaming Pod | hardware | £5/mo |
+| HW-SMART-TV | Smart TV Box | hardware | £10/mo |
+| STRM-PLAY-STD | Play Standard (bolt-on) | streaming | £10.99/mo |
+| STRM-FAMILY | Family Pack (bolt-on) | streaming | £4.99/mo |
+| STRM-MOVIES | Movies Pack (bolt-on) | streaming | £3.99/mo |
 
-Products have upgrade paths (`BB-FTTC-100 → BB-FIBRE-500 → BB-FIBRE-1G`, `HW-SKY-STREAM → HW-SKY-GLASS`), cross-category compatibility edges (`BB-FIBRE-1G COMPATIBLE_WITH TV-FULL-HSE`), and prerequisite requirements (`HW-WIFI-BOOSTER REQUIRES any broadband`, `STRM-NETFLIX-STD REQUIRES any TV package`). The product graph is used by the Offer Engine to identify valid upsell candidates and by the Action Broker to validate proposed additions against a customer's existing portfolio.
+Products have upgrade paths (`BB-FTTC-100 → BB-FIBRE-500 → BB-FIBRE-1G`, `HW-TV-POD → HW-SMART-TV`), cross-category compatibility edges (`BB-FIBRE-1G COMPATIBLE_WITH TV-FULL-HSE`), and prerequisite requirements (`HW-WIFI-BOOSTER REQUIRES any broadband`, `STRM-PLAY-STD REQUIRES any TV package`). The product graph is used by the Offer Engine to identify valid upsell candidates and by the Action Broker to validate proposed additions against a customer's existing portfolio.
 
 ---
 
