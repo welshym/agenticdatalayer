@@ -8,6 +8,10 @@ and how domain partials are merged into a complete canonical record.
 Field groups declare the structural units of cache documents. Each group
 carries a _meta block (assembled_at, source_system, ttl_seconds,
 consistency_class) enabling per-group freshness evaluation at ACG read time.
+
+Config files loaded at startup:
+  ontology/assembly_spec.yaml  — field groups, field mappings, assembly spec
+  ontology/write_routes.yaml   — write intents, target SoRs, payload schemas
 """
 
 from __future__ import annotations
@@ -15,7 +19,10 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Callable
+
+import yaml
 
 
 STATUS_CODES: dict[str, str] = {"A": "active", "S": "suspended", "C": "cancelled"}
@@ -25,7 +32,13 @@ _CANONICAL_CONTROL_FIELDS: frozenset[str] = frozenset({
     "customer_id", "assembled_at", "assembly_state", "missing_domains", "provenance",
 })
 
-# Finite set of valid assembly states — owned here so cache_app imports rather than duplicates
+_ONTOLOGY_DIR = Path(__file__).parent
+
+
+# ---------------------------------------------------------------------------
+# Dataclass schemas — the shape each config entry must conform to
+# ---------------------------------------------------------------------------
+
 @dataclass
 class FieldMapping:
     """Describes how one SoR field maps to one canonical field."""
@@ -69,111 +82,148 @@ class EventType:
     field_mappings: list[FieldMapping] = field(default_factory=list)
 
 
-# ---------------------------------------------------------------------------
-# Field group declarations — define the structure of cache documents
-# ---------------------------------------------------------------------------
+@dataclass
+class WriteRoute:
+    """
+    Maps a named write intent to the target SoR endpoint and a minimal schema
+    describing the required payload fields. The Action Broker resolves these
+    at runtime; callers submit intents by name, never SoR URLs directly.
+    """
+    intent: str
+    description: str
+    target_sor: str      # "billing-sor" | "catalogue-sor"
+    # Minimal schema: {"required": [...], "properties": {field: {"type": ...}}}
+    payload_schema: dict
 
-FIELD_GROUPS: dict[str, FieldGroup] = {
-    "profile": FieldGroup(
-        name="profile",
-        ttl_seconds=3600,            # identity data changes infrequently
-        consistency_class="eventual",
-        source_domain="customer",
-    ),
-    "commercial_state": FieldGroup(
-        name="commercial_state",
-        ttl_seconds=300,             # billing status changes frequently
-        consistency_class="strong",
-        source_domain="billing",
-    ),
+
+# ---------------------------------------------------------------------------
+# Transform registry — named callables referenced by assembly_spec.yaml.
+# Adding a new transform is the one config change that requires a code edit,
+# because transforms encode business meaning (e.g. "A means active") and
+# deserve code review and test coverage.
+# ---------------------------------------------------------------------------
+TRANSFORMS: dict[str, Callable] = {
+    "decode_status": lambda v: STATUS_CODES.get(v, v),
+}
+
+# YAML type name → Python type for write route payload schema validation
+_YAML_TYPES: dict[str, type | tuple] = {
+    "str":    str,
+    "int":    int,
+    "float":  float,
+    "number": (int, float),
 }
 
 
 # ---------------------------------------------------------------------------
-# CRM field mappings — customer identity fields only
+# Config loaders
 # ---------------------------------------------------------------------------
-_CRM_MAPPINGS: list[FieldMapping] = [
-    FieldMapping("cust_ref", "customer_id", "SoR customer reference resolved to canonical customer ID"),
-    FieldMapping("first_nm", "first_name",  "Abbreviated first-name field normalised to full attribute name"),
-    FieldMapping("last_nm",  "last_name",   "Abbreviated last-name field normalised to full attribute name"),
-    FieldMapping("email",    "email",       "Email address carried through unchanged"),
-    FieldMapping("phone",    "phone",       "Phone number carried through unchanged"),
-]
 
-# ---------------------------------------------------------------------------
-# Billing subscription line mappings — applied per item in sub_lines[]
-# product_name, product_type, and list_price_gbp are intentionally absent
-# here; they are joined from the Product Catalogue by CDC at assembly time
-# and stored inside commercial_state.subscriptions in the cache.
-# ---------------------------------------------------------------------------
-_BILLING_LINE_MAPPINGS: list[FieldMapping] = [
-    FieldMapping("sku",                  "product_id",           "Stock-keeping unit mapped to canonical product identifier"),
-    FieldMapping(
-        "stat", "status",
-        "Single-char status code (A/S/C) decoded to canonical status value",
-        transform=lambda v: STATUS_CODES.get(v, v),
-    ),
-    FieldMapping("eff_from",             "effective_date",       "Effective-from date mapped to canonical effective_date"),
-    FieldMapping("list_price_gbp",       "list_price_gbp",       "Catalogue list price in GBP at time of last billing event; base price for discount rule evaluation"),
-    FieldMapping("monthly_charge",       "monthly_charge_gbp",   "Contracted price in GBP paid by the customer after all applicable discounts"),
-    FieldMapping("total_discount_pct",   "total_discount_pct",   "Combined discount percentage applied across all fired policies"),
-    FieldMapping("applied_discounts",    "applied_discounts",    "List of discount policies that fired, each with policy_id, discount_pct, and reason"),
-    FieldMapping("discount_code",        "discount_code",        "Discount code applied at point of sale, carried through unchanged"),
-    FieldMapping("contract_term_months", "contract_term_months", "Contract duration in months at purchase time (1 = monthly rolling, 24 = two-year)"),
-    FieldMapping("reason_code",   "reason_code",   "Enumerated reason for the last status change (non_payment, customer_request, fraud_hold, technical_issue, network_fault, other)"),
-    FieldMapping("reason_detail", "reason_detail", "Optional free-text context supplied by the agent or operator at the time of the status change"),
-]
+def _build_field_mapping(m: dict) -> FieldMapping:
+    transform_name = m.get("transform")
+    if transform_name and transform_name not in TRANSFORMS:
+        raise ValueError(
+            f"Unknown transform '{transform_name}' in assembly_spec.yaml. "
+            f"Add it to the TRANSFORMS dict in ontology.py."
+        )
+    return FieldMapping(
+        sor_field=m["sor_field"],
+        canonical_field=m["canonical_field"],
+        description=m.get("description", ""),
+        transform=TRANSFORMS[transform_name] if transform_name else None,
+    )
 
 
-# ---------------------------------------------------------------------------
-# Product Catalogue field mappings — applied by assemble_product_update()
-# ---------------------------------------------------------------------------
-_CATALOGUE_MAPPINGS: list[FieldMapping] = [
-    FieldMapping("sku",            "product_id",    "SKU mapped to canonical product identifier"),
-    FieldMapping("name",           "product_name",  "Product display name carried through unchanged"),
-    FieldMapping("list_price_gbp", "list_price_gbp","List price in GBP carried through unchanged"),
-    FieldMapping("product_type",   "product_type",  "Product type category carried through unchanged"),
-    FieldMapping("available_terms_months", "available_terms_months",
-                 "Available contract term durations in months carried through unchanged"),
-]
+def _load_assembly_spec() -> tuple[
+    dict[str, FieldGroup],
+    dict[str, EventType],
+    list[FieldMapping],
+    list[FieldMapping],
+    str,
+]:
+    """
+    Load field groups, assembly spec, and field mappings from assembly_spec.yaml.
+    Returns (FIELD_GROUPS, ASSEMBLY_SPEC, _BILLING_LINE_MAPPINGS, _CATALOGUE_MAPPINGS, PRODUCT_EVENT_TYPE).
+    """
+    with open(_ONTOLOGY_DIR / "assembly_spec.yaml", encoding="utf-8") as f:
+        raw = yaml.safe_load(f)
 
-PRODUCT_EVENT_TYPE = "product.catalogue.updated"
+    field_groups = {
+        name: FieldGroup(name=name, **cfg)
+        for name, cfg in raw["field_groups"].items()
+    }
+
+    billing_line_mappings = [_build_field_mapping(m) for m in raw["billing_line_mappings"]]
+    catalogue_mappings    = [_build_field_mapping(m) for m in raw["catalogue_mappings"]]
+    catalogue_event_type  = raw["catalogue_event_type"]
+
+    assembly_spec: dict[str, EventType] = {}
+    for event_name, cfg in raw["assembly_spec"].items():
+        mappings = [_build_field_mapping(m) for m in (cfg.get("field_mappings") or [])]
+        assembly_spec[event_name] = EventType(
+            name=event_name,
+            source_system=cfg["source_system"],
+            domain=cfg["domain"],
+            field_group=cfg["field_group"],
+            atomic=cfg["atomic"],
+            join_with=cfg.get("join_with") or [],
+            join_key_sor=cfg["join_key_sor"],
+            join_key_canonical=cfg["join_key_canonical"],
+            timeout_seconds=cfg["timeout_seconds"],
+            field_mappings=mappings,
+        )
+
+    return field_groups, assembly_spec, billing_line_mappings, catalogue_mappings, catalogue_event_type
+
+
+def _load_write_routes() -> dict[str, WriteRoute]:
+    """Load write route declarations from write_routes.yaml."""
+    with open(_ONTOLOGY_DIR / "write_routes.yaml", encoding="utf-8") as f:
+        raw = yaml.safe_load(f)
+
+    routes: dict[str, WriteRoute] = {}
+    for intent, cfg in raw["write_routes"].items():
+        properties: dict[str, dict] = {}
+        for field_name, field_cfg in cfg["payload_schema"]["properties"].items():
+            type_name = field_cfg["type"]
+            if type_name not in _YAML_TYPES:
+                raise ValueError(
+                    f"Unknown type '{type_name}' for field '{field_name}' in write_routes.yaml. "
+                    f"Allowed types: {list(_YAML_TYPES)}"
+                )
+            properties[field_name] = {"type": _YAML_TYPES[type_name]}
+
+        routes[intent] = WriteRoute(
+            intent=intent,
+            description=cfg["description"].strip(),
+            target_sor=cfg["target_sor"],
+            payload_schema={
+                "required":   cfg["payload_schema"].get("required", []),
+                "properties": properties,
+            },
+        )
+
+    return routes
 
 
 # ---------------------------------------------------------------------------
-# Assembly specification — module-level registry of all event types
+# Load config — module-level instances derived from YAML at import time
 # ---------------------------------------------------------------------------
-ASSEMBLY_SPEC: dict[str, EventType] = {
-    "crm.customer.updated": EventType(
-        name="crm.customer.updated",
-        source_system="crm-sor",
-        domain="customer",
-        field_group="profile",
-        atomic=False,
-        join_with=["billing.subscription.updated"],
-        join_key_sor="cust_ref",
-        join_key_canonical="customer_id",
-        timeout_seconds=30,
-        field_mappings=_CRM_MAPPINGS,
-    ),
-    "billing.subscription.updated": EventType(
-        name="billing.subscription.updated",
-        source_system="billing-sor",
-        domain="billing",
-        field_group="commercial_state",
-        atomic=False,
-        join_with=["crm.customer.updated"],
-        join_key_sor="cust_ref",
-        join_key_canonical="customer_id",
-        timeout_seconds=30,
-        field_mappings=[],  # subscription lines handled specially in assemble_domain
-    ),
-}
+
+(
+    FIELD_GROUPS,
+    ASSEMBLY_SPEC,
+    _BILLING_LINE_MAPPINGS,
+    _CATALOGUE_MAPPINGS,
+    PRODUCT_EVENT_TYPE,
+) = _load_assembly_spec()
+
+WRITE_ROUTES: dict[str, WriteRoute] = _load_write_routes()
 
 REQUIRED_DOMAINS: frozenset[str] = frozenset(spec.domain for spec in ASSEMBLY_SPEC.values())
 
-# Derived from REQUIRED_DOMAINS so adding a new EventType to ASSEMBLY_SPEC automatically
-# registers its awaiting_<domain> state without touching this file again.
+# Derived from REQUIRED_DOMAINS so adding a new EventType to assembly_spec.yaml
+# automatically registers its awaiting_<domain> state without touching this file.
 VALID_ASSEMBLY_STATES: frozenset[str] = (
     frozenset({"complete", "partial_timed_out"})
     | frozenset(f"awaiting_{d}" for d in REQUIRED_DOMAINS)
@@ -461,97 +511,6 @@ def describe_spec() -> dict:
         "retrieval_plans":          describe_retrieval_plans(),
         "response_contracts":       {pid: describe_response_contract(pid) for pid in RETRIEVAL_PLANS},
     }
-
-
-# ---------------------------------------------------------------------------
-# Write route and permission declarations — Action Broker governance substrate
-# ---------------------------------------------------------------------------
-
-@dataclass
-class WriteRoute:
-    """
-    Maps a named write intent to the target SoR endpoint and a minimal schema
-    describing the required payload fields. The Action Broker resolves these
-    at runtime; callers submit intents by name, never SoR URLs directly.
-    """
-    intent: str
-    description: str
-    target_sor: str      # "billing-sor" | "catalogue-sor"
-    # Minimal schema: {"required": [...], "properties": {field: {"type": ...}}}
-    payload_schema: dict
-
-
-WRITE_ROUTES: dict[str, WriteRoute] = {
-    "add_subscription": WriteRoute(
-        intent="add_subscription",
-        description=(
-            "Add a new subscription line to a customer's Billing SoR record. "
-            "Price is always sourced from the Product Catalogue — callers supply "
-            "the SKU and contract term only."
-        ),
-        target_sor="billing-sor",
-        payload_schema={
-            "required": ["sku"],
-            "properties": {
-                "sku":                  {"type": str},
-                "contract_term_months": {"type": int},
-                "stat":                 {"type": str},
-            },
-        },
-    ),
-    "cancel_subscription": WriteRoute(
-        intent="cancel_subscription",
-        description=(
-            "Cancel an existing active subscription line in the Billing SoR. "
-            "reason_code is required; reason_detail is optional free text."
-        ),
-        target_sor="billing-sor",
-        payload_schema={
-            "required": ["product_sku", "reason_code"],
-            "properties": {
-                "product_sku":   {"type": str},
-                "reason_code":   {"type": str},
-                "reason_detail": {"type": str},
-            },
-        },
-    ),
-    "update_product_price": WriteRoute(
-        intent="update_product_price",
-        description=(
-            "Update the list price of a product in the Product Catalogue SoR. "
-            "Triggers a product.catalogue.updated CDC fan-out that re-enriches "
-            "cached product metadata for all holders. Does NOT update contracted "
-            "billing charges — that requires a separate recalculate_billing intent."
-        ),
-        target_sor="catalogue-sor",
-        payload_schema={
-            "required": ["sku", "new_list_price_gbp"],
-            "properties": {
-                "sku":                {"type": str},
-                "new_list_price_gbp": {"type": (int, float)},
-            },
-        },
-    ),
-    "recalculate_billing": WriteRoute(
-        intent="recalculate_billing",
-        description=(
-            "Trigger a bulk billing recalculation for all customers holding a given "
-            "SKU. Fetches the current list price from the Product Catalogue, "
-            "re-evaluates discount rules for each holder's full active portfolio, "
-            "and emits billing.subscription.updated events to CDC so the cache and "
-            "permanent record are refreshed."
-        ),
-        target_sor="billing-sor",
-        payload_schema={
-            "required": ["product_sku"],
-            "properties": {
-                "product_sku": {"type": str},
-            },
-        },
-    ),
-}
-
-
 
 
 # ---------------------------------------------------------------------------
@@ -968,5 +927,3 @@ def describe_write_routes() -> dict:
         }
         for intent, route in WRITE_ROUTES.items()
     }
-
-

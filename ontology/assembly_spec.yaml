@@ -1,0 +1,151 @@
+# Assembly Specification
+# ======================
+# Declares how SoR events are assembled into canonical domain partials:
+# field group structure, field-level mappings, and join rules.
+#
+# Edit this file to:
+#   - Add or rename a SoR field mapping
+#   - Change a field group's TTL or consistency class
+#   - Onboard a new event type (new SoR)
+#
+# After editing, restart the services that import the ontology module
+# (CDC, Cache, ACG, Action Broker). No code change required.
+#
+# Transform functions are referenced by name (e.g. transform: decode_status).
+# They are defined in the TRANSFORMS dict in ontology.py. Adding a genuinely
+# new transform — one that encodes business meaning — is the one case that
+# requires a code change and code review.
+
+
+# ---------------------------------------------------------------------------
+# Field groups — structural units of a cache document.
+# Each group carries its own _meta block so the ACG can evaluate per-group
+# freshness at read time without querying the ontology separately.
+# ---------------------------------------------------------------------------
+field_groups:
+
+  profile:
+    ttl_seconds: 3600          # identity data changes infrequently
+    consistency_class: eventual
+    source_domain: customer
+
+  commercial_state:
+    ttl_seconds: 300           # billing status changes frequently
+    consistency_class: strong
+    source_domain: billing
+
+
+# ---------------------------------------------------------------------------
+# Billing subscription line mappings
+# Applied per item in sub_lines[] by CDC's assemble_domain() for the billing
+# domain. Kept separate from the billing event type's field_mappings because
+# billing lines are a repeated structure, not a flat record.
+# ---------------------------------------------------------------------------
+billing_line_mappings:
+  - sor_field: sku
+    canonical_field: product_id
+    description: "Stock-keeping unit mapped to canonical product identifier"
+  - sor_field: stat
+    canonical_field: status
+    description: "Single-char status code (A/S/C) decoded to canonical status value"
+    transform: decode_status
+  - sor_field: eff_from
+    canonical_field: effective_date
+    description: "Effective-from date mapped to canonical effective_date"
+  - sor_field: list_price_gbp
+    canonical_field: list_price_gbp
+    description: "Catalogue list price in GBP at time of last billing event; base price for discount rule evaluation"
+  - sor_field: monthly_charge
+    canonical_field: monthly_charge_gbp
+    description: "Contracted price in GBP paid by the customer after all applicable discounts"
+  - sor_field: total_discount_pct
+    canonical_field: total_discount_pct
+    description: "Combined discount percentage applied across all fired policies"
+  - sor_field: applied_discounts
+    canonical_field: applied_discounts
+    description: "List of discount policies that fired, each with policy_id, discount_pct, and reason"
+  - sor_field: discount_code
+    canonical_field: discount_code
+    description: "Discount code applied at point of sale, carried through unchanged"
+  - sor_field: contract_term_months
+    canonical_field: contract_term_months
+    description: "Contract duration in months at purchase time (1 = monthly rolling, 24 = two-year)"
+  - sor_field: reason_code
+    canonical_field: reason_code
+    description: "Enumerated reason for the last status change (non_payment, customer_request, fraud_hold, technical_issue, network_fault, other)"
+  - sor_field: reason_detail
+    canonical_field: reason_detail
+    description: "Optional free-text context supplied by the agent or operator at the time of the status change"
+
+
+# ---------------------------------------------------------------------------
+# Product Catalogue field mappings
+# Applied by assemble_product_update() when a product.catalogue.updated
+# event arrives. Used to enrich subscription lines in the cache.
+# ---------------------------------------------------------------------------
+catalogue_mappings:
+  - sor_field: sku
+    canonical_field: product_id
+    description: "SKU mapped to canonical product identifier"
+  - sor_field: name
+    canonical_field: product_name
+    description: "Product display name carried through unchanged"
+  - sor_field: list_price_gbp
+    canonical_field: list_price_gbp
+    description: "List price in GBP carried through unchanged"
+  - sor_field: product_type
+    canonical_field: product_type
+    description: "Product type category carried through unchanged"
+  - sor_field: available_terms_months
+    canonical_field: available_terms_months
+    description: "Available contract term durations in months carried through unchanged"
+
+catalogue_event_type: product.catalogue.updated
+
+
+# ---------------------------------------------------------------------------
+# Assembly specification — one entry per SoR event type.
+#
+# join_with: companion event types required before a complete record can be
+#            written. An empty list means the event is atomic (atomic: true).
+# field_mappings: applied to the flat raw record by assemble_domain().
+#                 Billing domain lines use billing_line_mappings instead.
+# ---------------------------------------------------------------------------
+assembly_spec:
+
+  crm.customer.updated:
+    source_system: crm-sor
+    domain: customer
+    field_group: profile
+    atomic: false
+    join_with: [billing.subscription.updated]
+    join_key_sor: cust_ref
+    join_key_canonical: customer_id
+    timeout_seconds: 30
+    field_mappings:
+      - sor_field: cust_ref
+        canonical_field: customer_id
+        description: "SoR customer reference resolved to canonical customer ID"
+      - sor_field: first_nm
+        canonical_field: first_name
+        description: "Abbreviated first-name field normalised to full attribute name"
+      - sor_field: last_nm
+        canonical_field: last_name
+        description: "Abbreviated last-name field normalised to full attribute name"
+      - sor_field: email
+        canonical_field: email
+        description: "Email address carried through unchanged"
+      - sor_field: phone
+        canonical_field: phone
+        description: "Phone number carried through unchanged"
+
+  billing.subscription.updated:
+    source_system: billing-sor
+    domain: billing
+    field_group: commercial_state
+    atomic: false
+    join_with: [crm.customer.updated]
+    join_key_sor: cust_ref
+    join_key_canonical: customer_id
+    timeout_seconds: 30
+    field_mappings: []  # billing lines handled specially via billing_line_mappings above

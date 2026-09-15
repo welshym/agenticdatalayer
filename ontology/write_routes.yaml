@@ -1,0 +1,81 @@
+# Write Routes
+# ============
+# Maps named write intents to target SoRs and payload schemas.
+# The Action Broker resolves these at runtime; callers submit intents by name,
+# never SoR URLs or endpoints directly.
+#
+# Edit this file to:
+#   - Add a new write intent
+#   - Change which SoR an intent targets
+#   - Add or remove required payload fields
+#
+# After editing, restart the Action Broker and ACG (they import the ontology).
+# No code change required.
+#
+# payload_schema types:
+#   str     → Python str
+#   int     → Python int
+#   float   → Python float
+#   number  → Python int or float (accepts either)
+
+write_routes:
+
+  add_subscription:
+    description: >-
+      Add a new subscription line to a customer's Billing SoR record.
+      Price is always sourced from the Product Catalogue — callers supply
+      the SKU and contract term only.
+    target_sor: billing-sor
+    payload_schema:
+      required: [sku]
+      properties:
+        sku:
+          type: str
+        contract_term_months:
+          type: int
+        stat:
+          type: str
+
+  cancel_subscription:
+    description: >-
+      Cancel an existing active subscription line in the Billing SoR.
+      reason_code is required; reason_detail is optional free text.
+    target_sor: billing-sor
+    payload_schema:
+      required: [product_sku, reason_code]
+      properties:
+        product_sku:
+          type: str
+        reason_code:
+          type: str
+        reason_detail:
+          type: str
+
+  update_product_price:
+    description: >-
+      Update the list price of a product in the Product Catalogue SoR.
+      Triggers a product.catalogue.updated CDC fan-out that re-enriches
+      cached product metadata for all holders. Does NOT update contracted
+      billing charges — that requires a separate recalculate_billing intent.
+    target_sor: catalogue-sor
+    payload_schema:
+      required: [sku, new_list_price_gbp]
+      properties:
+        sku:
+          type: str
+        new_list_price_gbp:
+          type: number
+
+  recalculate_billing:
+    description: >-
+      Trigger a bulk billing recalculation for all customers holding a given
+      SKU. Fetches the current list price from the Product Catalogue,
+      re-evaluates discount rules for each holder's full active portfolio,
+      and emits billing.subscription.updated events to CDC so the cache and
+      permanent record are refreshed.
+    target_sor: billing-sor
+    payload_schema:
+      required: [product_sku]
+      properties:
+        product_sku:
+          type: str
