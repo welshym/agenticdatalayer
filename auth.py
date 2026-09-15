@@ -24,8 +24,8 @@ DEFAULT_EXPIRY = 3600  # seconds
 
 
 # Registry of client IDs that may be issued tokens.
-# Separate from AGENT_PERMISSIONS in ontology.py — this governs who can authenticate;
-# ontology governs what authenticated write intents are permitted.
+# Separate from OPA policies/data.json — this governs who can authenticate;
+# OPA governs what authenticated write intents are permitted.
 DEMO_CLIENTS: dict[str, str] = {
     "purchase-agent":  "Customer-facing purchase agent. Reads customer context; may add and cancel subscriptions.",
     "catalogue-admin": "Product catalogue administrator. Reads all data; may update product prices and trigger billing recalculations.",

@@ -481,18 +481,6 @@ class WriteRoute:
     payload_schema: dict
 
 
-@dataclass
-class AgentPermission:
-    """
-    Declares what write intents a named caller is permitted to submit.
-    Read access to ACG endpoints is assumed for all callers; only write
-    intents are governed here.
-    """
-    caller_id: str
-    description: str
-    allowed_intents: list[str]
-
-
 WRITE_ROUTES: dict[str, WriteRoute] = {
     "add_subscription": WriteRoute(
         intent="add_subscription",
@@ -564,39 +552,6 @@ WRITE_ROUTES: dict[str, WriteRoute] = {
 }
 
 
-AGENT_PERMISSIONS: dict[str, AgentPermission] = {
-    "purchase-agent": AgentPermission(
-        caller_id="purchase-agent",
-        description=(
-            "Customer-facing purchase agent. May add new subscriptions and cancel "
-            "existing ones in the Billing SoR. Cannot modify product prices or "
-            "trigger billing recalculations."
-        ),
-        allowed_intents=["add_subscription", "cancel_subscription"],
-    ),
-    "catalogue-admin": AgentPermission(
-        caller_id="catalogue-admin",
-        description=(
-            "Product catalogue administrator. May update product list prices in the "
-            "Catalogue SoR and trigger bulk billing recalculations. Cannot directly "
-            "modify customer subscription records."
-        ),
-        allowed_intents=["update_product_price", "recalculate_billing"],
-    ),
-    "system-admin": AgentPermission(
-        caller_id="system-admin",
-        description=(
-            "System administrator with full write access across all SoRs. "
-            "Intended for operational tasks, demo teardown, and break-glass scenarios."
-        ),
-        allowed_intents=[
-            "add_subscription",
-            "cancel_subscription",
-            "update_product_price",
-            "recalculate_billing",
-        ],
-    ),
-}
 
 
 # ---------------------------------------------------------------------------
@@ -1015,12 +970,3 @@ def describe_write_routes() -> dict:
     }
 
 
-def describe_agent_permissions() -> dict:
-    """Return machine-readable caller permission declarations."""
-    return {
-        caller_id: {
-            "description":     perm.description,
-            "allowed_intents": perm.allowed_intents,
-        }
-        for caller_id, perm in AGENT_PERMISSIONS.items()
-    }

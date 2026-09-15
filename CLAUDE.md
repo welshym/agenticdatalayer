@@ -104,12 +104,14 @@ pytest tests/                          # runs both unit and integration tests
 |----------|----------|-------------------|----------------|
 | Unit | `tests/rules/` | No | Discount rule evaluation, policy stacking, edge cases |
 | Unit | `tests/catalogue/` | No | Product catalogue combination validation, REQUIRES prerequisite enforcement |
+| OPA policy | `policies/authz_test.rego` | No (run with `opa test policies/ -v`) | Caller permission allow/deny logic and `allowed_intents` rule |
 | Integration | `tests/test_pricing_journey.py` | Yes (all) | End-to-end Action Broker flows, permission denials, audit log, CDC propagation, subscription dependency enforcement |
 
 **When to add tests:**
 
 - Every new discount policy in `discounts.yaml` must have a corresponding test in `tests/rules/test_discounts.py`. The test must cover the positive case, the boundary case (value just below threshold), and any interaction with other policies.
 - Every new write intent in `WRITE_ROUTES` must have integration test coverage for: the permitted case (correct caller, valid payload), a permission denial (wrong caller), and a schema violation (missing required field).
+- Every new caller in `policies/data.json` must have `opa test` coverage in `policies/authz_test.rego` for: each allowed intent (should pass), at least one denied intent (should fail), and the `allowed_intents` return value.
 - Pure functions (e.g. `evaluate_discounts`, `validate_cache_record`, `assemble_domain`) must have unit tests that can run without any service running.
 
 **Rules for integration tests:**
@@ -129,7 +131,7 @@ pytest tests/                          # runs both unit and integration tests
 
 ### Separation of concerns
 
-#### The ontology is the authority — do not duplicate it elsewhere
+#### The ontology is the authority for data semantics — do not duplicate it elsewhere
 
 `ontology/ontology.py` is the sole place for:
 - Field mapping declarations (`FieldMapping`, `_CRM_MAPPINGS`, `_BILLING_LINE_MAPPINGS`, `_CATALOGUE_MAPPINGS`)
@@ -137,10 +139,18 @@ pytest tests/                          # runs both unit and integration tests
 - Assembly rules (`ASSEMBLY_SPEC`)
 - Valid assembly states (`VALID_ASSEMBLY_STATES`)
 - Write route declarations (`WRITE_ROUTES`)
-- Agent permission declarations (`AGENT_PERMISSIONS`)
 - Cache schema validation (`validate_cache_record`)
 
-Do not add field names, status codes, or domain logic to `cdc_app.py`, `acg_app.py`, or `action_broker_app.py`. If a new SoR field needs mapping, add a `FieldMapping` to the appropriate list in `ontology.py`. If a new write intent is needed, add it to `WRITE_ROUTES` and `AGENT_PERMISSIONS`.
+Do not add field names, status codes, or domain logic to `cdc_app.py`, `acg_app.py`, or `action_broker_app.py`. If a new SoR field needs mapping, add a `FieldMapping` to the appropriate list in `ontology.py`. If a new write intent is needed, add it to `WRITE_ROUTES` (ontology) **and** update `policies/data.json` (OPA) with the callers permitted to submit it.
+
+#### OPA is the authority for write permissions
+
+`policies/data.json` is the sole place for caller permission declarations. `policies/authz.rego` is the sole place for permission policy logic. Do not add permission checks anywhere else.
+
+- To add a new caller: add an entry to `policies/data.json`; add `opa test` coverage in `policies/authz_test.rego`.
+- To add a new intent to an existing caller's permissions: update `policies/data.json`.
+- The Action Broker calls OPA on every `POST /submit-intent` and fails **closed** if OPA is unreachable.
+- The ACG calls OPA to populate the `Permitted callers` field in MCP write tool descriptions (informational only; enforcement is at the Action Broker).
 
 The `STATUS_CODES` dict (`A → active`, `S → suspended`, `C → cancelled`) is declared in `ontology.py`. `billing_app.py` has its own `_STAT_CODES` copy because the Billing SoR is in the Systems of Record layer and cannot import the ontology (it owns the raw codes, not the canonical values). This is an acceptable exception — it is not a precedent for duplicating ontology knowledge in Business Context or Agentic layer services.
 
@@ -161,7 +171,8 @@ The exception is the ACG's legacy cache-miss assembly path (which was removed in
 | Context Cache | Stores and retrieves canonical records | Assembling records; evaluating freshness |
 | ACG | Reads context and serves it to agents; evaluates freshness at read time | Writing to cache; publishing events |
 | Offer Engine | Evaluates discount policies; computes offer proposals | Storing results; reading customer state directly |
-| Action Broker | Governs write intents: auth, permissions, routing, validation, audit | Executing business logic; making write decisions |
+| Action Broker | Governs write intents: auth, OPA permission query, routing, validation, audit | Executing business logic; making write decisions |
+| OPA Policy Engine | Evaluates `allow` and `allowed_intents` rules; returns policy decisions | Storing customer data; routing intents |
 | Logging Service | Stores structured log entries; provides trace reconstruction | Reacting to log content |
 
 #### The Offer Engine does not read customer state directly
@@ -240,7 +251,7 @@ ontology (CDC, Cache, ACG, Action Broker)
 
 ## Invariants — never break these
 
-1. **`ontology.py` is the authority.** Field mappings, assembly rules, write routes, and permissions belong there. `cdc_app.py` and `action_broker_app.py` contain no domain knowledge.
+1. **`ontology.py` is the authority for data semantics.** Field mappings, assembly rules, and write routes belong there. `cdc_app.py` and `action_broker_app.py` contain no domain knowledge. Agent permissions are governed by OPA (`policies/data.json` + `policies/authz.rego`) — do not duplicate them in the ontology.
 
 2. **Only CDC writes to the cache.** `cache_app.py` is the only service that may write to `_store` or `_permanent`. Nothing calls `PUT /records/{id}` except `cdc_app.py` and its enrichment helpers.
 
@@ -256,9 +267,13 @@ ontology (CDC, Cache, ACG, Action Broker)
 
 8. **The Action Broker derives `caller_id` from the verified JWT, not from the request body.** The request body's `intent`, `customer_id`, and `payload` fields are trusted; the caller's identity is not. This is asserted in `submit_intent` and must not be changed.
 
-9. **Tests are idempotent.** Integration tests must restore all mutated state in teardown. A test run must leave the system in the same state it was in before the run.
+9. **OPA permission checks fail closed.** If OPA is unreachable, the Action Broker returns 503 — it never grants write access it cannot confirm. Do not add fallback permission lookups in Python.
 
-10. **New discount policies require new tests.** A policy entry in `discounts.yaml` without a corresponding test is incomplete work.
+10. **Tests are idempotent.** Integration tests must restore all mutated state in teardown. A test run must leave the system in the same state it was in before the run.
+
+11. **New discount policies require new tests.** A policy entry in `discounts.yaml` without a corresponding test is incomplete work.
+
+12. **New callers in `policies/data.json` require OPA tests.** Add corresponding cases to `policies/authz_test.rego` covering allowed intents, denied intents, and `allowed_intents` return value.
 
 ---
 

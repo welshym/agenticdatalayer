@@ -49,6 +49,7 @@ CACHE_URL          = "http://localhost:8012"
 LOG_URL            = "http://localhost:8015"
 OFFER_URL          = "http://localhost:8016"
 ACTION_BROKER_URL  = "http://localhost:8018"
+OPA_URL            = "http://localhost:8019"
 
 UI_PATH = Path(__file__).parent / "ui" / "index.html"
 
@@ -490,13 +491,18 @@ _PY_TO_JSON_TYPE: dict = {
 }
 
 
-def _permitted_callers(intent: str) -> list[str]:
-    """Return the caller IDs allowed to submit this intent, from AGENT_PERMISSIONS."""
-    return [
-        caller_id
-        for caller_id, perm in ontology.AGENT_PERMISSIONS.items()
-        if intent in perm.allowed_intents
-    ]
+async def _permitted_callers_from_opa(intent: str) -> list[str]:
+    """Return the caller IDs allowed to submit this intent, by querying OPA's data API."""
+    try:
+        resp = await _http["opa_http"].get("/v1/data/callers")
+        callers: dict = resp.json().get("result", {})
+        return [
+            caller_id
+            for caller_id, data in callers.items()
+            if intent in data.get("allowed_intents", [])
+        ]
+    except Exception:
+        return []
 
 
 def _write_tool_schema(intent: str) -> dict:
@@ -590,18 +596,20 @@ async def _list_tools() -> list[Tool]:
 
     # One write tool per declared write route. Caller identity comes from the
     # verified JWT bound at SSE connection time — not from tool arguments.
-    write_tools = [
-        Tool(
+    # Permitted callers are fetched from OPA once and filtered per intent.
+    write_tools = []
+    for intent, route in ontology.WRITE_ROUTES.items():
+        permitted = await _permitted_callers_from_opa(intent)
+        callers_str = ", ".join(permitted) if permitted else "none registered"
+        write_tools.append(Tool(
             name=intent,
             description=(
                 f"{route.description}\n\n"
-                f"Permitted callers: {', '.join(_permitted_callers(intent))}.\n"
+                f"Permitted callers: {callers_str}.\n"
                 f"Target SoR: {route.target_sor}."
             ),
             inputSchema=_write_tool_schema(intent),
-        )
-        for intent, route in ontology.WRITE_ROUTES.items()
-    ]
+        ))
 
     return read_tools + write_tools
 
@@ -647,6 +655,7 @@ async def lifespan(app: FastAPI):
     _http["log_http"]            = httpx.AsyncClient(base_url=LOG_URL,           timeout=3.0)
     _http["offer_http"]          = httpx.AsyncClient(base_url=OFFER_URL,         timeout=10.0)
     _http["action_broker_http"]  = httpx.AsyncClient(base_url=ACTION_BROKER_URL, timeout=15.0)
+    _http["opa_http"]            = httpx.AsyncClient(base_url=OPA_URL,           timeout=5.0)
     yield
     for client in _http.values():
         await client.aclose()

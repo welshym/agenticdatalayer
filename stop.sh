@@ -36,11 +36,13 @@ stop_service crm
 stop_service cdc
 stop_service log
 stop_service cache
+stop_service opa
 
 # Belt-and-braces: catch any stragglers not tracked by PID files
 for svc in acg action_broker offer_engine billing catalogue crm cdc log cache; do
   pkill -f "uvicorn ${svc}_app:app" 2>/dev/null || true
 done
+pkill -f "opa run --server" 2>/dev/null || true
 
 echo ""
 if [ "$stopped" -gt 0 ]; then

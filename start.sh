@@ -12,6 +12,7 @@
 #   8016  Offer Engine          (Business Context layer)
 #   8017  Billing SoR           (Systems of Record layer)
 #   8018  Action Broker         (Agentic layer — write governance)
+#   8019  OPA Policy Engine     (Agentic layer — authorisation decisions)
 #
 # Usage:
 #   ./start.sh           start all services and seed the cache
@@ -34,7 +35,7 @@ if [ ! -x "$UVICORN" ]; then
 fi
 
 # Refuse to start if any service port is already in use
-for port in 8010 8011 8012 8013 8014 8015 8016 8017 8018; do
+for port in 8010 8011 8012 8013 8014 8015 8016 8017 8018 8019; do
   if lsof -i ":$port" -sTCP:LISTEN -t &>/dev/null; then
     echo "ERROR: port $port is already in use. Run ./stop.sh first."
     exit 1
@@ -51,13 +52,14 @@ mkdir -p "$LOG_DIR"
 # Start order (dependency order):
 #   Cache (8012)           — no upstream deps
 #   Log   (8015)           — no upstream deps
+#   OPA   (8019)           — no upstream deps; serves authz decisions to Action Broker + ACG
 #   Cat   (8014)           — no upstream deps (loads from YAML; calls CDC on PATCH)
 #   Offer Engine (8016)    — depends on Catalogue (graph queries via /graph/compatible-candidates)
 #   CDC   (8011)           — calls Cache + Log + Catalogue + Offer Engine
 #   CRM SoR (8010)         — calls CDC + Log; emits startup events for all seed records
 #   Billing SoR (8017)     — calls CDC + Log; emits startup events for all seed records
-#   Action Broker (8018)   — calls Billing + Catalogue + Log; pure write governance
-#   ACG   (8013)           — calls Cache + Log only (pure reader; no assembly path)
+#   Action Broker (8018)   — calls Billing + Catalogue + Log + OPA; pure write governance
+#   ACG   (8013)           — calls Cache + Log + OPA only (pure reader; no assembly path)
 #
 # Cache seeding is event-driven: CRM and Billing emit crm.customer.updated /
 # billing.subscription.updated at startup → CDC assembles → both cache tiers
@@ -76,6 +78,11 @@ echo "  [8012] Context Cache         started (PID $(cat "$PID_DIR/.pid_cache"))"
   > "$LOG_DIR/log.log" 2>&1 &
 echo $! > "$PID_DIR/.pid_log"
 echo "  [8015] Logging Service       started (PID $(cat "$PID_DIR/.pid_log"))"
+
+opa run --server --addr :8019 "$SCRIPT_DIR/policies" \
+  > "$LOG_DIR/opa.log" 2>&1 &
+echo $! > "$PID_DIR/.pid_opa"
+echo "  [8019] OPA Policy Engine     started (PID $(cat "$PID_DIR/.pid_opa"))"
 
 (cd "$SCRIPT_DIR/product" && PYTHONPATH="$SCRIPT_DIR:$SCRIPT_DIR/ontology:$SCRIPT_DIR/rules" \
   "$UVICORN" catalogue_app:app --host 0.0.0.0 --port 8014 --log-level warning) \
@@ -124,6 +131,7 @@ echo "Services ready:"
 echo "  Agent UI               ->  http://localhost:8013"
 echo "  ACG API docs           ->  http://localhost:8013/docs"
 echo "  Action Broker docs     ->  http://localhost:8018/docs"
+echo "  OPA Policy API         ->  http://localhost:8019/v1/data/callers"
 echo "  Offer Engine docs      ->  http://localhost:8016/docs"
 echo "  CRM SoR API docs       ->  http://localhost:8010/docs"
 echo "  CDC API docs           ->  http://localhost:8011/docs"

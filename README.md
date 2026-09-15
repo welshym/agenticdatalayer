@@ -73,7 +73,7 @@ The demo is scoped to one CX slice — **customer product holdings** — and sho
 │  │  • REQUIRED_DOMAINS (derived)            │                    │         │
 │  │  • VALID_ASSEMBLY_STATES (derived)       │                    │         │
 │  │  • RETRIEVAL_PLANS (per-task-type)       │                    │         │
-│  │  • WRITE_ROUTES + AGENT_PERMISSIONS      │                    │         │
+│  │  • WRITE_ROUTES                          │                    │         │
 │  │  • validate_cache_record()               │                    │         │
 │  └──────────────────────────────────────────┘                    │         │
 │                                                                   │         │
@@ -121,6 +121,7 @@ The demo is scoped to one CX slice — **customer product holdings** — and sho
 | 8016 | Offer Engine | Business Context | `offer_engine/offer_engine_app.py` |
 | 8017 | Billing SoR | Systems of Record | `billing/billing_app.py` |
 | 8018 | Action Broker | Agentic | `action_broker/action_broker_app.py` |
+| 8019 | OPA Policy Engine | Agentic | `policies/authz.rego` + `policies/data.json` |
 
 ---
 
@@ -357,7 +358,8 @@ sequenceDiagram
     ACG->>ACG: auth.mint_token("purchase-agent") → JWT
     ACG->>AB: POST /submit-intent {intent: add_subscription, customer_id, payload} Bearer <JWT>
     AB->>AB: verify JWT → caller_id = purchase-agent ✓
-    AB->>AB: Permission check: add_subscription in allowed_intents? ✓
+    AB->>OPA: POST /v1/data/authz/allow {caller_id: purchase-agent, intent: add_subscription}
+    OPA-->>AB: {result: true}
     AB->>BIL: PATCH /customers/C001 {add: {sku, term, stat}}
     BIL-->>AB: {updated subscription record}
     AB->>AB: Write audit record
@@ -379,7 +381,8 @@ sequenceDiagram
 
     Agent->>AB: POST /submit-intent {intent: add_subscription, customer_id: C001, payload: {sku, term}}
     AB->>AB: Verify JWT → caller_id = purchase-agent
-    AB->>AB: Permission check: add_subscription in allowed_intents? ✓
+    AB->>OPA: POST /v1/data/authz/allow {caller_id: purchase-agent, intent: add_subscription}
+    OPA-->>AB: {result: true}
     AB->>AB: Route resolution: target_sor = billing-sor
     AB->>AB: Payload schema validation ✓
     AB->>BIL: GET /customers/C001 → active SKUs
@@ -481,11 +484,6 @@ The ACG builds a `_PLAN_REGISTRY` from these at startup, keyed on `task_type`, s
 - `update_product_price` → catalogue-sor
 - `recalculate_billing` → billing-sor
 
-**Agent permissions (`AGENT_PERMISSIONS`)** — declares which callers may submit which intents:
-- `purchase-agent` — `add_subscription`, `cancel_subscription`
-- `catalogue-admin` — `update_product_price`, `recalculate_billing`
-- `system-admin` — all intents
-
 **Schema validation (`validate_cache_record`)** — called by the Context Cache on every PUT to reject records with unknown top-level keys, missing `_meta` blocks, or invalid `assembly_state` values. The allowed key sets are derived from the field group declarations, keeping schema knowledge inside the ontology.
 
 ---
@@ -567,14 +565,52 @@ All agent write intents must pass through the Action Broker. Direct SoR writes b
 **Enforcement chain on `POST /submit-intent`:**
 
 1. **JWT verification** — validates the Bearer token; derives `caller_id` from the `sub` claim. The caller cannot self-assert their identity.
-2. **Permission check** — looks up the `caller_id` in `AGENT_PERMISSIONS` (declared in the ontology). Returns 403 if the caller has no registered permissions or if the intent is not in their allowed list.
-3. **Route resolution** — looks up the intent in `WRITE_ROUTES` to determine the target SoR and payload schema.
+2. **Permission check via OPA** — `POST /v1/data/authz/allow` to OPA (port 8019) with `{caller_id, intent}`. Policy is defined in `policies/authz.rego`; caller data in `policies/data.json`. Fails **closed**: if OPA is unreachable, the write is denied with 503.
+3. **Route resolution** — looks up the intent in `WRITE_ROUTES` (declared in the ontology) to determine the target SoR and payload schema.
 4. **Payload schema validation** — validates required fields and types. Unknown fields are also rejected.
 5. **Combination validation** (`add_subscription` only) — fetches the customer's current active SKUs from the Billing SoR, then calls `POST /validate-combination` on the Product Catalogue with the current portfolio plus the proposed SKU. Returns 422 `combination_invalid` if any `REQUIRES` rule is unmet (e.g. adding a streaming bolt-on when no TV package is held). Fails open if the Catalogue is unreachable.
 6. **SoR write** — forwards the intent to the appropriate SoR endpoint.
 7. **Audit record** — appends an immutable entry to the in-memory audit deque (last 200 entries retained). Both permitted and denied intents are recorded.
 
 **Token issuance (`POST /token`):** simplified `client_credentials`-style endpoint. Demo clients are registered in `auth.py`. Returns an OAuth2-compatible token response.
+
+---
+
+### OPA Policy Engine (`policies/`)
+
+[Open Policy Agent](https://www.openpolicyagent.org/) is the external policy decision point for write intent authorisation. It runs as a standalone process at port 8019 and is queried by the Action Broker and ACG over HTTP.
+
+**Why OPA rather than the ontology:** The ontology governs what operations mean (field mappings, write routes, assembly specs). OPA governs who is allowed to do them. Separating the two means permission policy can be updated, tested, and audited independently — no Python code changes required to add a caller or change their allowed intents.
+
+**Key files:**
+
+| File | Role |
+|------|------|
+| `policies/data.json` | Caller permissions data — the source of truth for who can do what |
+| `policies/authz.rego` | Rego policy — `allow` rule and `allowed_intents` rule |
+| `policies/authz_test.rego` | `opa test` coverage — 14 tests across all callers and intents |
+
+**Policy rules:**
+
+- `allow` — evaluates to `true` when the caller is registered and the intent is in their permitted list. Input: `{caller_id, intent}`.
+- `allowed_intents` — returns the caller's permitted intents as an array; returns `[]` for unknown callers. Input: `{caller_id}`.
+
+**Registered callers (`policies/data.json`):**
+
+| Caller | Permitted intents |
+|--------|------------------|
+| `purchase-agent` | `add_subscription`, `cancel_subscription` |
+| `catalogue-admin` | `update_product_price`, `recalculate_billing` |
+| `system-admin` | all intents |
+
+**Running policy tests:**
+
+```bash
+cd ontology/demo
+opa test policies/ -v
+```
+
+**Adding a new caller:** edit `policies/data.json` — no service restart required if OPA is in watch mode. OPA picks up the change at its next bundle refresh cycle.
 
 ---
 

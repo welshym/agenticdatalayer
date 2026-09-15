@@ -9,12 +9,13 @@ bypass all governance and are not permitted in the architecture.
 
 Enforcement chain on POST /submit-intent:
   1. JWT verification             — validate Bearer token; derive caller_id from sub claim
-  2. Permission check             — is this intent in the caller's allowed list?
+  2. Permission check             — POST /v1/data/authz/allow on OPA (port 8019)
   3. Route resolution             — which SoR and endpoint handles this intent?
   4. Payload schema validation    — are all required fields present and typed correctly?
-  5. SoR write                    — forward the request to the target SoR
-  6. Audit record                 — immutable append-only record of every decision
-  7. Response                     — SoR result + audit_id returned to caller
+  5. Combination validation       — catalogue REQUIRES rules (add_subscription only)
+  6. SoR write                    — forward the request to the target SoR
+  7. Audit record                 — immutable append-only record of every decision
+  8. Response                     — SoR result + audit_id returned to caller
 
 Routes:
   POST /token                    — Issue a JWT for a registered demo client
@@ -42,11 +43,12 @@ from pydantic import BaseModel
 
 import auth
 import ontology
-from ontology import AGENT_PERMISSIONS, WRITE_ROUTES, AgentPermission, WriteRoute
+from ontology import WRITE_ROUTES, WriteRoute
 
 BILLING_URL   = "http://localhost:8017"
 CATALOGUE_URL = "http://localhost:8014"
 LOG_URL       = "http://localhost:8015"
+OPA_URL       = "http://localhost:8019"
 
 # Immutable append-only audit deque — last 200 entries kept in memory
 _audit_log: deque[dict] = deque(maxlen=200)
@@ -273,6 +275,7 @@ async def lifespan(app: FastAPI):
     _http["billing"]   = httpx.AsyncClient(base_url=BILLING_URL,   timeout=10.0)
     _http["catalogue"] = httpx.AsyncClient(base_url=CATALOGUE_URL, timeout=10.0)
     _http["log"]       = httpx.AsyncClient(base_url=LOG_URL,        timeout=3.0)
+    _http["opa"]       = httpx.AsyncClient(base_url=OPA_URL,        timeout=5.0)
     yield
     for client in _http.values():
         await client.aclose()
@@ -348,29 +351,50 @@ async def submit_intent(
     caller_id = token["sub"]
     audit_id  = str(uuid.uuid4())
 
-    # ── 1. Permission check ─────────────────────────────────────────────────
-    perm: AgentPermission | None = AGENT_PERMISSIONS.get(caller_id)
-    if perm is None:
+    # ── 1. Permission check via OPA ─────────────────────────────────────────
+    # Fail closed: any OPA error (unreachable, unexpected response) is treated
+    # as a denial — we never grant permissions we cannot confirm.
+    try:
+        opa_resp = await _http["opa"].post(
+            "/v1/data/authz/allow",
+            json={"input": {"caller_id": caller_id, "intent": body.intent}},
+        )
+        allowed = opa_resp.json().get("result", False)
+    except Exception as exc:
         _write_audit(
             audit_id, caller_id, body.intent, body.customer_id, body.payload,
-            outcome="denied",
-            denial_reason=f"caller '{caller_id}' has no write permissions registered",
+            outcome="error",
+            denial_reason=f"OPA unreachable: {exc}",
             sor_result=None,
         )
         raise HTTPException(
-            status_code=403,
+            status_code=503,
             detail={
-                "error":    "permission_denied",
-                "message":  f"caller '{caller_id}' has no write permissions — read-only access only",
+                "error":    "policy_engine_unavailable",
+                "message":  "Cannot evaluate permissions — OPA policy engine is not reachable",
                 "audit_id": audit_id,
             },
         )
 
-    if body.intent not in perm.allowed_intents:
-        denial = (
-            f"caller '{caller_id}' is not permitted to submit intent "
-            f"'{body.intent}' — allowed: {perm.allowed_intents}"
-        )
+    if not allowed:
+        # Fetch allowed intents so the error message is useful.
+        try:
+            intents_resp = await _http["opa"].post(
+                "/v1/data/authz/allowed_intents",
+                json={"input": {"caller_id": caller_id}},
+            )
+            allowed_intents: list[str] = intents_resp.json().get("result", [])
+        except Exception:
+            allowed_intents = []
+
+        if not allowed_intents:
+            denial = f"caller '{caller_id}' has no write permissions registered"
+        else:
+            denial = (
+                f"caller '{caller_id}' is not permitted to submit intent "
+                f"'{body.intent}' — allowed: {allowed_intents}"
+            )
+
         _write_audit(
             audit_id, caller_id, body.intent, body.customer_id, body.payload,
             outcome="denied",
@@ -396,7 +420,7 @@ async def submit_intent(
                 "message":         denial,
                 "caller_id":       caller_id,
                 "intent":          body.intent,
-                "allowed_intents": perm.allowed_intents,
+                "allowed_intents": allowed_intents,
                 "audit_id":        audit_id,
             },
         )
@@ -477,19 +501,24 @@ async def get_permissions(
     caller_id: str,
     _token: dict = Depends(_require_jwt),
 ) -> dict:
-    perm = AGENT_PERMISSIONS.get(caller_id)
-    if not perm:
+    try:
+        resp = await _http["opa"].get(f"/v1/data/callers/{caller_id}")
+        caller_data = resp.json().get("result")
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"OPA unreachable: {exc}")
+    if caller_data is None:
         raise HTTPException(status_code=404, detail=f"caller_id '{caller_id}' not registered")
+    allowed_intents: list[str] = caller_data.get("allowed_intents", [])
     return {
-        "caller_id":       perm.caller_id,
-        "description":     perm.description,
-        "allowed_intents": perm.allowed_intents,
+        "caller_id":       caller_id,
+        "description":     caller_data.get("description", ""),
+        "allowed_intents": allowed_intents,
         "write_routes": {
             intent: {
                 "target_sor":  WRITE_ROUTES[intent].target_sor,
                 "description": WRITE_ROUTES[intent].description,
             }
-            for intent in perm.allowed_intents
+            for intent in allowed_intents
             if intent in WRITE_ROUTES
         },
     }
@@ -497,7 +526,12 @@ async def get_permissions(
 
 @app.get("/permissions", summary="All declared caller permissions")
 async def list_permissions(_token: dict = Depends(_require_jwt)) -> dict:
-    return ontology.describe_agent_permissions()
+    try:
+        resp = await _http["opa"].get("/v1/data/callers")
+        callers = resp.json().get("result", {})
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"OPA unreachable: {exc}")
+    return callers
 
 
 @app.get("/write-routes", summary="All declared write routes")
@@ -516,10 +550,16 @@ async def get_audit(
 
 @app.get("/health", summary="Service health")
 async def health() -> dict:
+    # Check OPA reachability — permissions are non-functional if OPA is down
+    try:
+        opa_resp = await _http["opa"].get("/health")
+        opa_status = "ok" if opa_resp.status_code == 200 else "degraded"
+    except Exception:
+        opa_status = "unreachable"
     return {
         "status":        "ok",
+        "opa_status":    opa_status,
         "audit_entries": len(_audit_log),
-        "callers":       list(AGENT_PERMISSIONS),
         "intents":       list(WRITE_ROUTES),
     }
 
